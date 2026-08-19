@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>C&amp;I / Telecom FEED M/H Calculator V.0.4</title>
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+
+<div class="app-title">
+  <span>C&amp;I / Telecom FEED M/H Calculator V.0.4 / 2026-08-11</span>
+  <span class="ver">HYUNDAI ENGINEERING</span>
+</div>
+
+<div class="app-body">
+
+  <!-- ================= MASTER CONTROL ================= -->
+  <aside class="master">
+    <img id="logo" class="logo" alt="HYUNDAI ENGINEERING">
+    <h2>MASTER CONTROL</h2>
+    <p class="hint">The shared Input items and every Output tab follow the Master values set here.</p>
+
+    <label for="mc-part">Part</label>
+    <select id="mc-part">
+      <option>All</option><option>C&amp;I (Instrumentation)</option><option>TEL (Telecom)</option>
+    </select>
+
+    <label for="mc-case">Case</label>
+    <select id="mc-case">
+      <option>Outsourcing-Single</option><option>Outsourcing-Comprehensive</option>
+    </select>
+
+    <label for="mc-ratio">Ratio basis</label>
+    <select id="mc-ratio">
+      <option>Original basis</option><option>User entered</option>
+    </select>
+
+    <label for="mc-external">Outsourcing Minimization</label>
+    <select id="mc-external">
+      <option>No</option><option>Yes</option>
+    </select>
+
+    <label for="mc-project">Project</label>
+    <input type="text" id="mc-project">
+
+    <label for="mc-base">Base M/H per 1 M/M</label>
+    <input type="text" id="mc-base" inputmode="decimal">
+
+    <label for="mc-months">Design duration (months)</label>
+    <input type="text" id="mc-months" inputmode="decimal">
+
+    <label for="mc-rate-short">Outsourcing-Single unit rate</label>
+    <input type="text" id="mc-rate-short" inputmode="decimal">
+
+    <label for="mc-rate-comp">Outsourcing-Comprehensive unit rate</label>
+    <input type="text" id="mc-rate-comp" inputmode="decimal">
+
+    <label for="mc-ip">Internal %</label>
+    <input type="text" id="mc-ip" inputmode="decimal">
+
+    <label for="mc-ep">External %</label>
+    <input type="text" id="mc-ep" inputmode="decimal">
+
+    <button class="btn accent gap" id="btn-recalc">Recalculate output</button>
+    <button class="btn accent" id="btn-save">Save inputs</button>
+    <button class="btn accent" id="btn-load">Load saved inputs</button>
+    <button class="btn" id="btn-export">Export inputs</button>
+    <button class="btn" id="btn-import">Import inputs</button>
+    <input type="file" id="file-import" accept=".json,application/json" hidden>
+    <button class="btn" id="btn-reset">Reset</button>
+    <button class="btn accent gap" id="btn-report">Generate Word report</button>
+    <button class="btn" id="btn-print">Print current tab / save as PDF</button>
+
+    <p class="note">Outsourcing Minimization is changed here in Master Control only. The blue Master-linked row on the Edit Inputs tab simply mirrors the value set here, and the green auto-result rows are recalculated from your selections as you go.</p>
+  </aside>
+
+  <!-- ================= TABS ================= -->
+  <main class="pane">
+    <div class="tabbar" id="tabbar" role="tablist"></div>
+    <div class="tabpanels" id="tabpanels">
+      <section class="tabpanel" id="tab-input"></section>
+      <section class="tabpanel" id="tab-guide"></section>
+      <section class="tabpanel" id="tab-summary"></section>
+      <section class="tabpanel" id="tab-output-ci"></section>
+      <section class="tabpanel" id="tab-output-tel"></section>
+      <section class="tabpanel" id="tab-op1"></section>
+      <section class="tabpanel" id="tab-op2-short"></section>
+      <section class="tabpanel" id="tab-op2-comp"></section>
+      <section class="tabpanel" id="tab-std-ci"></section>
+      <section class="tabpanel" id="tab-std-tel"></section>
+    </div>
+  </main>
+
+</div>
+
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script src="js/data.js"></script>
+<script src="js/model.js"></script>
+<script src="js/report.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
