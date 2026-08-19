@@ -1,0 +1,1918 @@
+<!DOCTYPE html>
+<!--
+  FEED M/H Calculator - single-file web application
+  ================================================
+  Everything this page needs is inside this one file: styles, calculation model,
+  report generator and base data (including the logo, as a base64 data URI).
+  There are no external stylesheets, scripts, fonts, images or network calls, so
+  it runs from a local disk, a USB stick, an email attachment or a static server.
+
+  Just open it in a browser.
+
+  Contents, in order:
+    <style>              screen styles, Excel-like table formatting
+    <body>               Master Control panel + 10 tab panels
+    GENERATED DATA       Input items, Output activities, calculation standards, logo
+    MH (model)           port of the Model class of FEED_MH_Calculator_V0_4_OPExcelGrid.py
+    MHReport             Word (.doc) report generation
+    app                  tab rendering, input handling, state save/restore
+
+  To rebuild the data block after changing the Python program's base data:
+      python3 tools/gen_web_data.py
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>C&amp;I / Telecom FEED M/H Calculator V.0.4</title>
+<style>
+/* FEED M/H Calculator - web styles
+   Reuses the colour palette of the desktop (Tkinter) program and its
+   Excel-style table formatting. */
+:root {
+  --primary: #102A43;
+  --accent: #0F6CBD;
+  --accent-dark: #0B5CAB;
+  --bg: #EAF1F8;
+  --card: #FFFFFF;
+  --head: #163B5C;
+  --text: #172033;
+  --muted: #506980;
+  --yellow: #FFF2CC;
+  --green: #E2F0D9;
+  --purple: #EFE7FF;
+  --locked: #F2F2F2;
+  --line: #D7E3EE;
+  --grid-line: #B7B7B7;
+  --hdr-blue: #DDEBF7;
+  --hdr-cyan: #BFE3F0;
+  --hdr-orange: #FCE4D6;
+  --hdr-green: #C6E0B4;
+  --hdr-purple: #EAD1EA;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Segoe UI", "Malgun Gothic", "Helvetica Neue", Arial, sans-serif;
+  font-size: 13px;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ---------- title bar ---------- */
+.app-title {
+  background: var(--primary);
+  color: #fff;
+  font-size: 19px;
+  font-weight: 700;
+  padding: 15px 18px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex: 0 0 auto;
+}
+.app-title .ver { font-size: 12px; font-weight: 400; opacity: .8; margin-left: auto; }
+
+/* ---------- layout ---------- */
+.app-body {
+  flex: 1 1 auto;
+  display: flex;
+  gap: 12px;
+  padding: 12px;
+  min-height: 0;
+}
+
+.master {
+  flex: 0 0 372px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 14px;
+  overflow: auto;
+}
+.master img.logo { max-width: 155px; display: block; margin-bottom: 10px; }
+.master h2 { font-size: 16px; margin: 0 0 2px; }
+.master .hint { color: var(--muted); font-size: 11.5px; margin: 0 0 10px; line-height: 1.5; }
+.master label { display: block; font-size: 12px; margin: 9px 0 3px; font-weight: 600; }
+.master select, .master input[type="text"], .master input[type="number"] {
+  width: 100%;
+  padding: 6px 7px;
+  border: 1px solid #B9C7D6;
+  border-radius: 3px;
+  font: inherit;
+  background: #fff;
+  color: var(--text);
+}
+.master select:focus, .master input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.master .note {
+  margin-top: 14px;
+  background: #FFF9EC;
+  border: 1px solid #F0DFB8;
+  border-radius: 3px;
+  color: #7A4F00;
+  font-size: 11.5px;
+  line-height: 1.55;
+  padding: 9px 10px;
+}
+.btn {
+  display: block;
+  width: 100%;
+  margin-top: 7px;
+  padding: 8px 10px;
+  border: 1px solid #B9C7D6;
+  border-radius: 3px;
+  background: #F3F6FA;
+  color: var(--text);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+.btn:hover { background: #E7EEF6; }
+.btn.accent { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.accent:hover { background: var(--accent-dark); }
+.btn.gap { margin-top: 14px; }
+
+/* ---------- tabs ---------- */
+.pane {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.tabbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  padding: 2px 0 0;
+  flex: 0 0 auto;
+}
+.tabbar button {
+  border: 1px solid var(--line);
+  border-bottom: none;
+  background: #DFE7EF;
+  color: var(--text);
+  font: inherit;
+  font-weight: 700;
+  font-size: 12px;
+  padding: 7px 12px;
+  border-radius: 4px 4px 0 0;
+  cursor: pointer;
+}
+.tabbar button[aria-selected="true"] { background: #fff; color: var(--primary); }
+.tabpanels {
+  flex: 1 1 auto;
+  min-height: 0;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 0 4px 4px 4px;
+  overflow: auto;
+}
+.tabpanel { display: none; padding: 14px; }
+.tabpanel.active { display: block; }
+.tabpanel.flush { padding: 0; }
+
+/* ---------- shared tables ---------- */
+table.grid {
+  border-collapse: collapse;
+  font-size: 11.5px;
+  background: #fff;
+}
+table.grid th, table.grid td {
+  border: 1px solid var(--grid-line);
+  padding: 4px 6px;
+  vertical-align: middle;
+  white-space: pre-line;
+}
+table.grid th { background: var(--hdr-blue); font-weight: 700; text-align: center; }
+.num { text-align: right; font-variant-numeric: tabular-nums; }
+.ctr { text-align: center; }
+.b { font-weight: 700; }
+.red { color: #C00000; }
+
+.sheet-title { font-size: 19px; font-weight: 700; padding: 4px 0; }
+.sheet-date { font-size: 11px; font-weight: 700; float: right; padding-top: 10px; }
+.sheet-ver { font-size: 16px; font-weight: 700; color: #C00000; padding: 2px 0 10px; }
+.scrollx { overflow-x: auto; padding-bottom: 6px; }
+
+/* ---------- Edit Inputs ---------- */
+table.inputs { width: 100%; border-collapse: collapse; font-size: 12px; }
+table.inputs th {
+  background: var(--head); color: #fff; font-weight: 700; padding: 7px 6px;
+  position: sticky; top: 0; z-index: 2; text-align: center;
+}
+table.inputs td { border: 1px solid var(--line); padding: 4px 6px; vertical-align: middle; }
+table.inputs tr.sec td {
+  background: #F1F6FB; font-weight: 700; color: var(--primary); font-size: 12.5px; padding: 6px;
+}
+table.inputs td:nth-child(1), table.inputs td:nth-child(2) { white-space: nowrap; text-align: center; }
+table.inputs .kind { text-align: center; font-weight: 700; white-space: nowrap; font-size: 11px; }
+table.inputs .k-auto { background: var(--green); }
+table.inputs .k-master { background: #DDEBF7; }
+table.inputs .k-req { background: var(--yellow); }
+table.inputs .k-opt { background: var(--purple); }
+table.inputs .note { color: var(--muted); font-size: 11px; line-height: 1.45; }
+table.inputs .detail { line-height: 1.45; }
+table.inputs input.cell, table.inputs select.cell {
+  width: 100%; padding: 5px 6px; border: 1px solid #B9C7D6; border-radius: 3px;
+  font: inherit; background: #fff; color: var(--text);
+}
+table.inputs select.cell { max-width: 340px; }
+table.inputs .readonly {
+  display: block; padding: 5px 6px; font-weight: 700; border-radius: 3px;
+}
+table.inputs .readonly.auto { background: var(--green); }
+table.inputs .readonly.master { background: var(--yellow); }
+.legend { display: flex; flex-wrap: wrap; gap: 14px; margin-bottom: 10px; font-size: 12px; align-items: center; }
+.legend span.sw { display: inline-block; width: 14px; height: 14px; border: 1px solid var(--grid-line); margin-right: 5px; vertical-align: -2px; }
+
+/* ---------- Summary ---------- */
+.summary-title { font-size: 22px; font-weight: 700; text-align: center; padding: 8px 0 14px; }
+table.summary { border-collapse: collapse; width: 100%; font-size: 13px; }
+table.summary th, table.summary td { border: 1px solid #98A8B8; padding: 7px 8px; text-align: center; }
+table.summary th { background: #F8F8F8; font-weight: 700; }
+table.summary td.lbl { background: #fff; font-weight: 700; }
+table.summary caption { text-align: left; font-size: 15px; font-weight: 700; padding: 16px 0 7px; }
+.summary-head { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 6px; font-size: 13px; }
+.summary-head .chip { border: 1px solid #98A8B8; padding: 5px 10px; background: #F7FAFD; font-weight: 700; }
+.summary-head .chip.on { background: var(--yellow); }
+.summary-note { background: #F7FAFD; border: 1px solid #98A8B8; padding: 8px 10px; margin-top: 14px; font-size: 12px; }
+
+/* ---------- Output / OP sheets ---------- */
+table.sheet { border-collapse: collapse; font-size: 11.5px; }
+table.sheet th, table.sheet td { border: 1px solid var(--grid-line); padding: 4px 6px; }
+table.sheet th { text-align: center; font-weight: 700; }
+table.sheet tr.section td { background: var(--hdr-blue); font-weight: 700; font-size: 12px; }
+table.sheet tr.odd td { background: #F7FBFF; }
+td.int { background: var(--yellow); }
+td.ext { background: var(--green); }
+td.tot { background: var(--hdr-blue); font-weight: 700; }
+tr.total td { background: #FFFF00; font-weight: 700; }
+.basebox { border-collapse: collapse; font-size: 11.5px; margin: 6px 0 10px; }
+.basebox td { border: 1px solid #000; padding: 4px 8px; }
+.basebox td.v { background: #40D050; font-weight: 700; text-align: right; }
+.notesbox { background: #D9D9D9; padding: 8px 10px; font-size: 11.5px; line-height: 1.5; max-width: 520px; }
+.projbar { display: flex; margin: 8px 0; font-size: 12px; }
+.projbar .k { background: #63D663; font-weight: 700; padding: 5px 10px; border: 1px solid #000; }
+.projbar .v { background: #9DE28E; padding: 5px 10px; border: 1px solid #000; border-left: none; flex: 1; }
+.tablebanner { background: #8BD56B; border: 1px solid #000; font-weight: 700; text-align: center; padding: 5px; font-size: 12.5px; }
+.footline { border: 1px solid #000; padding: 6px 10px; font-weight: 700; font-size: 12px; margin-top: -1px; background: #fff; }
+.head-basic { background: var(--hdr-blue); }
+.head-unit { background: var(--hdr-cyan); }
+.head-mh { background: var(--hdr-green); }
+.head-rem { background: var(--hdr-purple); }
+
+/* ---------- calculation standards ---------- */
+table.std { border-collapse: collapse; font-size: 11.5px; }
+table.std th, table.std td { border: 1px solid var(--grid-line); padding: 4px 6px; vertical-align: middle; }
+table.std th { background: var(--hdr-orange); text-align: center; font-weight: 700; }
+table.std th.basic { background: var(--hdr-blue); }
+table.std th.guide { background: var(--hdr-cyan); }
+table.std td.guide { white-space: pre-line; line-height: 1.45; max-width: 560px; }
+table.std td.act { max-width: 340px; }
+table.std tr.odd td { background: #F7FBFF; }
+table.std input.v {
+  width: 100%; border: none; background: transparent; font: inherit; text-align: right;
+  padding: 2px 3px; color: inherit;
+}
+table.std input.v:focus { outline: 2px solid var(--accent); background: #fff; }
+table.std td.vint { background: var(--yellow); }
+table.std td.vext { background: var(--green); }
+.std-topbar { display: flex; flex-wrap: wrap; align-items: stretch; margin-bottom: 8px; font-size: 12px; }
+.std-topbar .k { background: #BFE3F0; font-weight: 700; padding: 8px 10px; border: 1px solid #000; white-space: pre-line; }
+.std-topbar .v { background: #FFC000; color: #C00000; font-weight: 700; font-size: 15px; padding: 8px 16px; border: 1px solid #000; border-left: none; display: flex; align-items: center; }
+.std-topbar .n { background: #F2F2F2; padding: 8px 10px; font-size: 11.5px; line-height: 1.5; flex: 1; min-width: 260px; }
+
+/* ---------- Guide ---------- */
+.guide { max-width: 1080px; }
+.guide h1 { font-size: 24px; text-align: center; margin: 4px 0 2px; }
+.guide .sub { text-align: right; color: #555; font-size: 12px; margin-bottom: 18px; }
+.guide h2 { font-size: 17px; margin: 24px 0 8px; padding-bottom: 5px; border-bottom: 2px solid var(--line); }
+.guide .block { border: 1px solid var(--line); border-radius: 3px; margin: 8px 0; }
+.guide .block h3 { margin: 0; padding: 8px 12px; font-size: 13.5px; color: var(--primary); background: #F7FAFD; border-bottom: 1px solid var(--line); }
+.guide .block ul { margin: 6px 0; padding: 0 12px 6px 30px; }
+.guide .block li { margin: 4px 0; line-height: 1.55; }
+.guide .block.warn li { color: #C00000; }
+
+/* ---------- toast ---------- */
+#toast {
+  position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%);
+  background: var(--primary); color: #fff; padding: 10px 18px; border-radius: 4px;
+  font-size: 13px; box-shadow: 0 4px 14px rgba(16, 42, 67, .35);
+  opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 50; max-width: 80vw;
+}
+#toast.show { opacity: 1; }
+
+@media (max-width: 1100px) {
+  .app-body { flex-direction: column; }
+  .master { flex: 0 0 auto; max-height: none; }
+}
+
+@media print {
+  .app-title, .master, .tabbar, #toast { display: none !important; }
+  .app-body { padding: 0; display: block; }
+  .tabpanels { border: none; overflow: visible; }
+  body { background: #fff; }
+}
+</style>
+</head>
+<body>
+
+<div class="app-title">
+  <span>C&amp;I / Telecom FEED M/H Calculator V.0.4 / 2026-08-11</span>
+  <span class="ver">HYUNDAI ENGINEERING</span>
+</div>
+
+<div class="app-body">
+
+  <!-- ================= MASTER CONTROL ================= -->
+  <aside class="master">
+    <img id="logo" class="logo" alt="HYUNDAI ENGINEERING">
+    <h2>MASTER CONTROL</h2>
+    <p class="hint">The shared Input items and every Output tab follow the Master values set here.</p>
+
+    <label for="mc-part">Part</label>
+    <select id="mc-part">
+      <option>All</option><option>C&amp;I (Instrumentation)</option><option>TEL (Telecom)</option>
+    </select>
+
+    <label for="mc-case">Case</label>
+    <select id="mc-case">
+      <option>Outsourcing-Single</option><option>Outsourcing-Comprehensive</option>
+    </select>
+
+    <label for="mc-ratio">Ratio basis</label>
+    <select id="mc-ratio">
+      <option>Original basis</option><option>User entered</option>
+    </select>
+
+    <label for="mc-external">Outsourcing Minimization</label>
+    <select id="mc-external">
+      <option>No</option><option>Yes</option>
+    </select>
+
+    <label for="mc-project">Project</label>
+    <input type="text" id="mc-project">
+
+    <label for="mc-base">Base M/H per 1 M/M</label>
+    <input type="text" id="mc-base" inputmode="decimal">
+
+    <label for="mc-months">Design duration (months)</label>
+    <input type="text" id="mc-months" inputmode="decimal">
+
+    <label for="mc-rate-short">Outsourcing-Single unit rate</label>
+    <input type="text" id="mc-rate-short" inputmode="decimal">
+
+    <label for="mc-rate-comp">Outsourcing-Comprehensive unit rate</label>
+    <input type="text" id="mc-rate-comp" inputmode="decimal">
+
+    <label for="mc-ip">Internal %</label>
+    <input type="text" id="mc-ip" inputmode="decimal">
+
+    <label for="mc-ep">External %</label>
+    <input type="text" id="mc-ep" inputmode="decimal">
+
+    <button class="btn accent gap" id="btn-recalc">Recalculate output</button>
+    <button class="btn accent" id="btn-save">Save inputs</button>
+    <button class="btn accent" id="btn-load">Load saved inputs</button>
+    <button class="btn" id="btn-export">Export inputs</button>
+    <button class="btn" id="btn-import">Import inputs</button>
+    <input type="file" id="file-import" accept=".json,application/json" hidden>
+    <button class="btn" id="btn-reset">Reset</button>
+    <button class="btn accent gap" id="btn-report">Generate Word report</button>
+    <button class="btn" id="btn-print">Print current tab / save as PDF</button>
+
+    <p class="note">Outsourcing Minimization is changed here in Master Control only. The blue Master-linked row on the Edit Inputs tab simply mirrors the value set here, and the green auto-result rows are recalculated from your selections as you go.</p>
+  </aside>
+
+  <!-- ================= TABS ================= -->
+  <main class="pane">
+    <div class="tabbar" id="tabbar" role="tablist"></div>
+    <div class="tabpanels" id="tabpanels">
+      <section class="tabpanel" id="tab-input"></section>
+      <section class="tabpanel" id="tab-guide"></section>
+      <section class="tabpanel" id="tab-summary"></section>
+      <section class="tabpanel" id="tab-output-ci"></section>
+      <section class="tabpanel" id="tab-output-tel"></section>
+      <section class="tabpanel" id="tab-op1"></section>
+      <section class="tabpanel" id="tab-op2-short"></section>
+      <section class="tabpanel" id="tab-op2-comp"></section>
+      <section class="tabpanel" id="tab-std-ci"></section>
+      <section class="tabpanel" id="tab-std-tel"></section>
+    </div>
+  </main>
+
+</div>
+
+<div id="toast" role="status" aria-live="polite"></div>
+
+<!-- ===== BEGIN GENERATED DATA - rebuilt by tools/gen_web_data.py ===== -->
+<script id="app-data">
+/* Auto-generated by tools/gen_web_data.py - do not edit by hand. */
+/* Base data: Input items, Output activities and the calculation-standard
+   (산출기준) Unit M/H tables, translated via tools/ko_en.json.
+   The 상/중/하/SPI difficulty keys are intentionally left untranslated:
+   they are lookup keys shared with the desktop program. */
+var DATA = {"inputs":[{"part":"ci","code":"CTRL_PROJECT","section":"0. Project Common","major":"Project","middle":"","detail":"PROJECT","value":"","unit":"","type":"text","options":[],"note":"Project name","id":0},{"part":"ci","code":"CTRL_EXTERNAL_MIN","section":"0. Project Common","major":"Outsourcing Minimization","middle":"","detail":"Apply Outsourcing Minimization","value":"No","unit":"","type":"select","options":[{"value":"No","text":"No - standard calculation basis"},{"value":"Yes","text":"Yes - Outsourcing Minimization 75/25"}],"note":"Selecting Yes applies 75% internal / 25% external","id":1},{"part":"ci","code":"A01_QTY","baseCode":"A01","section":"Key Input (Quantity)","major":"Key Input (Quantity)","middle":"Control System","detail":"Total ICSS (DCS+ESD+F&G)+MMS IO Quantity","value":8820,"unit":"Point","type":"number","options":[],"note":"Enter the actual quantity only","id":2},{"part":"ci","code":"A02_QTY","baseCode":"A02","section":"A. Quantity Input","major":"","middle":"Instruments","detail":"Total Instrument Quantity (In-line Instruments included)","value":6462,"unit":"Set","type":"number","options":[],"note":"F&G Inst. & In-line Inst. included","id":3},{"part":"ci","code":"A03_QTY","baseCode":"A03","section":"A. Quantity Input","major":"","middle":"","detail":"In-line Instrument (Quantity of Valves & In-line Instruments)","value":0,"unit":"Set","type":"number","options":[],"note":"Enter directly if the quantity can be counted; otherwise enter 0 (with 0, the A15 quantity is automatically taken as 25% of A02)","id":4},{"part":"ci","code":"A04_QTY","baseCode":"A04","section":"GENERAL","major":"GENERAL","middle":"ITB Review & Clarification","detail":"Meeting & Coordination","value":1,"unit":"Lot","type":"number","options":[],"note":"Enter quantity","id":5},{"part":"ci","code":"A05_QTY","baseCode":"A05","section":"A. Quantity Input","major":"","middle":"","detail":"Review & Interface work.","value":1,"unit":"Lot","type":"number","options":[],"note":"Enter quantity","id":6},{"part":"ci","code":"A06_QTY","baseCode":"A06","section":"A. Quantity Input","major":"","middle":"","detail":"Client Coordination (Technical Clarification)","value":1,"unit":"Lot","type":"number","options":[],"note":"Enter quantity","id":7},{"part":"ci","code":"A07_QTY","baseCode":"A07","section":"Specification","major":"Specification","middle":"Technical Specification","detail":"Instrumentation & Automation Design Criteria","value":1,"unit":"Set","type":"number","options":[],"note":"Enter quantity","id":8},{"part":"ci","code":"A08_QTY","baseCode":"A08","section":"A. Quantity Input","major":"","middle":"","detail":"Control System","value":1,"unit":"Set","type":"number","options":[],"note":"Enter quantity","id":9},{"part":"ci","code":"A09_QTY","baseCode":"A09","section":"A. Quantity Input","major":"","middle":"","detail":"Packaged Instrument (Metering, Analzyer, TGS & etc.)","value":2,"unit":"Set","type":"number","options":[],"note":"Enter quantity","id":10},{"part":"ci","code":"A10_QTY","baseCode":"A10","section":"A. Quantity Input","major":"","middle":"","detail":"Field Instrument","value":3,"unit":"Set","type":"number","options":[],"note":"Enter quantity","id":11},{"part":"ci","code":"A11_QTY","baseCode":"A11","section":"A. Quantity Input","major":"","middle":"","detail":"Others","value":1,"unit":"Set","type":"number","options":[],"note":"Enter quantity","id":12},{"part":"ci","code":"A12_QTY","baseCode":"A12","section":"Calculation","major":"Calculation","middle":"Calculation","detail":"Cv (Valve Coefficient) Calculation for Sizing","value":485,"unit":"Set","type":"number","options":[],"note":"Enter the quantity directly if it can be counted; otherwise 30% of the in-line instruments is applied (by formula). Enter 0 if the calculation is not performed","id":13},{"part":"ci","code":"A13_QTY","baseCode":"A13","section":"A. Quantity Input","major":"","middle":"","detail":"PSV Orificice Calculation for Sizing","value":323,"unit":"Set","type":"number","options":[],"note":"Enter the quantity directly if it can be counted; otherwise 20% of the in-line instruments is applied (by formula). Enter 0 if the calculation is not performed","id":14},{"part":"ci","code":"A14_QTY","baseCode":"A14","section":"A. Quantity Input","major":"","middle":"","detail":"Flow Element Calculation","value":242,"unit":"Set","type":"number","options":[],"note":"Enter the quantity directly if it can be counted; otherwise 15% of the in-line instruments is applied (by formula). Enter 0 if the calculation is not performed","id":15},{"part":"ci","code":"A15_QTY","baseCode":"A15","section":"Procurement","major":"Procurement","middle":"Data Sheets & Summary List","detail":"Data Sheets (Valve & In-line Instruments)","value":1616,"unit":"Ea","type":"number","options":[],"note":"Enter quantity","id":16},{"part":"ci","code":"A16_QTY","baseCode":"A16","section":"A. Quantity Input","major":"","middle":"","detail":"Summary List (Other Instruments)","value":4846,"unit":"Ea","type":"number","options":[],"note":"Enter quantity","id":17},{"part":"ci","code":"A17_QTY","baseCode":"A17","section":"A. Quantity Input","major":"","middle":"MR & TBE","detail":"Control System","value":1,"unit":"Set","type":"number","options":[],"note":"Enter quantity","id":18},{"part":"ci","code":"A18_QTY","baseCode":"A18","section":"A. Quantity Input","major":"","middle":"","detail":"Packaged Instrument","value":3,"unit":"Set","type":"number","options":[],"note":"Enter quantity","id":19},{"part":"ci","code":"A19_QTY","baseCode":"A19","section":"A. Quantity Input","major":"","middle":"","detail":"Valves","value":7,"unit":"Set","type":"number","options":[],"note":"Enter quantity","id":20},{"part":"ci","code":"A20_QTY","baseCode":"A20","section":"A. Quantity Input","major":"","middle":"","detail":"Field Instrument","value":10,"unit":"Set","type":"number","options":[],"note":"Enter quantity","id":21},{"part":"ci","code":"A21_QTY","baseCode":"A21","section":"DRAWING","major":"DRAWING","middle":"Control System Architecture","detail":"Control System Configuration","value":2,"unit":"Sheet","type":"number","options":[],"note":"Enter quantity","id":22},{"part":"ci","code":"A22_QTY","baseCode":"A22","section":"A. Quantity Input","major":"","middle":"Layout Drawing","detail":"Instrument Cable Routing Layout","value":18,"unit":"Sheet","type":"number","options":[],"note":"Enter quantity","id":23},{"part":"ci","code":"A23_QTY","baseCode":"A23","section":"A. Quantity Input","major":"","middle":"","detail":"Cable Tray, Trench, Duct Bank Layout","value":18,"unit":"Sheet","type":"number","options":[],"note":"Enter quantity","id":24},{"part":"ci","code":"A24_QTY","baseCode":"A24","section":"A. Quantity Input","major":"","middle":"","detail":"Junction Box & Wiring Layout \n(Sketched Drawing)","value":18,"unit":"Sheet","type":"number","options":[],"note":"Enter quantity","id":25},{"part":"ci","code":"A25_QTY","baseCode":"A25","section":"A. Quantity Input","major":"","middle":"","detail":"Control Room / PIB Equipment Arrangement Layout","value":3,"unit":"Sheet","type":"number","options":[],"note":"Enter quantity","id":26},{"part":"ci","code":"A26_QTY","baseCode":"A26","section":"A. Quantity Input","major":"","middle":"Summary / List","detail":"Instrument Index and I/O List","value":6462,"unit":"Sheet","type":"number","options":[],"note":"When Outsourcing Minimization is applied, enter 0 for the 'share of internal work performed as Outsourcing-Comprehensive (%)'.","id":27},{"part":"ci","code":"A27_QTY","baseCode":"A27","section":"A. Quantity Input","major":"","middle":"","detail":"Instrument Cable Schedule","value":1293,"unit":"Sheet","type":"number","options":[],"note":"Enter quantity","id":28},{"part":"ci","code":"A28_QTY","baseCode":"A28","section":"A. Quantity Input","major":"","middle":"Detail Drawing","detail":"Typical Hook-up drawings","value":81,"unit":"Sheet","type":"number","options":[],"note":"Enter quantity","id":29},{"part":"ci","code":"A29_QTY","baseCode":"A29","section":"A. Quantity Input","major":"","middle":"","detail":"Instrument Typical Installation Details","value":50,"unit":"Sheet","type":"number","options":[],"note":"Enter quantity","id":30},{"part":"ci","code":"A30_QTY","baseCode":"A30","section":"A. Quantity Input","major":"","middle":"3'rd Party System Interface Design & Cable Block Diagram","detail":"Major 3rd Party System (Comp. / Boiler / Metering / MMS / Analyzer System / IRP (MCC) / FACP, etc.)","value":12,"unit":"Set","type":"number","options":[],"note":"Enter quantity","id":31},{"part":"ci","code":"A31_QTY","baseCode":"A31","section":"A. Quantity Input","major":"","middle":"","detail":"Minor 3rd Party System (Pump / Chem. Injection / TGS / PAGA / ECMS / HVAC / NOVAC, etc.)","value":20,"unit":"Set","type":"number","options":[],"note":"Enter quantity","id":32},{"part":"ci","code":"A32_QTY","baseCode":"A32","section":"MTO & INFORM TO OTHER DEPTS.","major":"MTO & INFORM TO OTHER DEPTS.","middle":"MTO","detail":"BM Take-off & BOQ Preparation","value":1,"unit":"Lot","type":"number","options":[],"note":"Enter quantity","id":33},{"part":"ci","code":"A33_QTY","baseCode":"A33","section":"A. Quantity Input","major":"","middle":"Inform to Other Depts.","detail":"Data Preparation for Inform to Other Depts.","value":1,"unit":"Lot","type":"number","options":[],"note":"Enter quantity","id":34},{"part":"ci","code":"A34_QTY","baseCode":"A34","section":"OTHERS","major":"OTHERS","middle":"3D Model","detail":"3D Modeling","value":1,"unit":"Lot","type":"number","options":[],"note":"Enter quantity","id":35},{"part":"ci","code":"A35_QTY","baseCode":"A35","section":"A. Quantity Input","major":"","middle":"SPI","detail":"SPI Seed DB","value":1,"unit":"Lot","type":"number","options":[],"note":"Enter quantity","id":36},{"part":"ci","code":"A36_QTY","baseCode":"A36","section":"A. Quantity Input","major":"","middle":"CER","detail":"Cold Eye Review","value":1,"unit":"Lot","type":"number","options":[],"note":"Enter quantity","id":37},{"part":"ci","code":"C01_SEL","baseCode":"C01","section":"B. Project Condition","major":"Project Standard Difficulty\n(General)","middle":"FEED Difficulty","detail":"FEED Difficulty","value":"2)","unit":"","type":"select","options":[{"value":"1)","text":"1) FEED projects requiring EPC-grade accuracy with relatively high difficulty and detail. (e.g. Aramco, including minor revamping)"},{"value":"2)","text":"2) Typical FEED projects requiring accuracy with EPC execution in mind. (e.g. most FEED and proposal-type projects)"},{"value":"3)","text":"3) FEED projects where we take part in FEED only, with no EPC execution planned"}],"note":"Difficulty is derived automatically from the selection","id":38},{"part":"ci","code":"C01_DIFF","baseCode":"C01","section":"B. Project Condition","major":"Project Standard Difficulty\n(General)","middle":"FEED Difficulty","detail":"FEED Difficulty - Result","value":"중","unit":"","type":"computed","options":[],"note":"Automatically calculated result","id":39},{"part":"ci","code":"C04_SEL","baseCode":"C04","section":"B. Project Condition","major":"Technical Specification Difficulty","middle":"Instrumentation & Automation Design Criteria","detail":"Instrumentation & Automation Design Criteria","value":"2)","unit":"","type":"select","options":[{"value":"1)","text":"1) New Generation"},{"value":"2)","text":"2) HEC Standard Specification applied"}],"note":"Difficulty is determined together with the Project standard difficulty","id":40},{"part":"ci","code":"C04_DIFF","baseCode":"C04","section":"B. Project Condition","major":"Technical Specification Difficulty","middle":"Instrumentation & Automation Design Criteria","detail":"Instrumentation & Automation Design Criteria Difficulty","value":"하","unit":"","type":"computed","options":[],"note":"Automatically calculated result","id":41},{"part":"ci","code":"C06_SEL","baseCode":"C06","section":"B. Project Condition","major":"","middle":"Specification for Control System","detail":"Specification for Control System","value":"1)","unit":"","type":"select","options":[{"value":"1)","text":"1) New Generation"},{"value":"2)","text":"2) HEC Standard Specification applied"}],"note":"Difficulty is determined together with the Project standard difficulty","id":42},{"part":"ci","code":"C06_DIFF","baseCode":"C06","section":"B. Project Condition","major":"","middle":"Specification for Control System","detail":"Specification for Control System Difficulty","value":"중","unit":"","type":"computed","options":[],"note":"Automatically calculated result","id":43},{"part":"ci","code":"C08_SEL","baseCode":"C08","section":"B. Project Condition","major":"","middle":"Specification for Packaged Instrument (Metering, Analzyer, TGS & etc.)","detail":"Specification for Packaged Instrument (Metering, Analzyer, TGS & etc.)","value":"1)","unit":"","type":"select","options":[{"value":"1)","text":"1) New Generation"},{"value":"2)","text":"2) HEC Standard Specification applied"}],"note":"Difficulty is determined together with the Project standard difficulty","id":44},{"part":"ci","code":"C08_DIFF","baseCode":"C08","section":"B. Project Condition","major":"","middle":"Specification for Packaged Instrument (Metering, Analzyer, TGS & etc.)","detail":"Specification for Packaged Instrument (Metering, Analzyer, TGS & etc.) Difficulty","value":"중","unit":"","type":"computed","options":[],"note":"Automatically calculated result","id":45},{"part":"ci","code":"C10_SEL","baseCode":"C10","section":"B. Project Condition","major":"","middle":"Specification for Field Instrument","detail":"Specification for Field Instrument","value":"1)","unit":"","type":"select","options":[{"value":"1)","text":"1) New Generation"},{"value":"2)","text":"2) HEC Standard Specification applied"}],"note":"Difficulty is determined together with the Project standard difficulty","id":46},{"part":"ci","code":"C10_DIFF","baseCode":"C10","section":"B. Project Condition","major":"","middle":"Specification for Field Instrument","detail":"Specification for Field Instrument Difficulty","value":"중","unit":"","type":"computed","options":[],"note":"Automatically calculated result","id":47},{"part":"ci","code":"C12_SEL","baseCode":"C12","section":"B. Project Condition","major":"","middle":"Specification for Others","detail":"Specification for Others","value":"1)","unit":"","type":"select","options":[{"value":"1)","text":"1) New Generation"},{"value":"2)","text":"2) HEC Standard Specification applied"}],"note":"Difficulty is determined together with the Project standard difficulty","id":48},{"part":"ci","code":"C12_DIFF","baseCode":"C12","section":"B. Project Condition","major":"","middle":"Specification for Others","detail":"Specification for Others Difficulty","value":"중","unit":"","type":"computed","options":[],"note":"Automatically calculated result","id":49},{"part":"ci","code":"C14_SEL","baseCode":"C14","section":"B. Project Condition","major":"Instrument Data Sheet Difficulty","middle":"Data Sheet (Valve & In-line Instruments)","detail":"Data Sheet (Valve & In-line Instruments)","value":"2)","unit":"","type":"select","options":[{"value":"1)","text":"1) SPI applied - internal"},{"value":"2)","text":"2) SPI applied - external"},{"value":"3)","text":"3) SPI not applied"}],"note":"Difficulty is derived automatically from the selection","id":50},{"part":"ci","code":"C14_DIFF","baseCode":"C14","section":"B. Project Condition","major":"Instrument Data Sheet Difficulty","middle":"Data Sheet (Valve & In-line Instruments)","detail":"Data Sheet (Valve & In-line Instruments) Difficulty","value":"SPI-외부","unit":"","type":"computed","options":[],"note":"Automatically calculated result","id":51},{"part":"ci","code":"C19_SEL","baseCode":"C19","section":"B. Project Condition","major":"Drawing Difficulty","middle":"Control System Configuration","detail":"Control System Configuration","value":"1)","unit":"","type":"select","options":[{"value":"1)","text":"1) The drawing is not in the ITB, so the concept must be established"},{"value":"2)","text":"2) The drawing is included in the ITB but needs substantial upgrading"}],"note":"Difficulty is derived automatically from the selection","id":52},{"part":"ci","code":"C19_DIFF","baseCode":"C19","section":"B. Project Condition","major":"Drawing Difficulty","middle":"Control System Configuration","detail":"Control System Configuration Difficulty","value":"중","unit":"","type":"computed","options":[],"note":"Automatically calculated result","id":53},{"part":"ci","code":"C21_SEL","baseCode":"C21","section":"B. Project Condition","major":"","middle":"Control Room / PIB Equipment Arrangement layout","detail":"Control Room / PIB Equipment Arrangement layout","value":"1)","unit":"","type":"select","options":[{"value":"1)","text":"1) The drawing is not in the ITB, so it must be prepared"},{"value":"2)","text":"2) The drawing is included in the ITB"}],"note":"Difficulty is derived automatically from the selection","id":54},{"part":"ci","code":"C21_DIFF","baseCode":"C21","section":"B. Project Condition","major":"","middle":"Control Room / PIB Equipment Arrangement layout","detail":"Control Room / PIB Equipment Arrangement Layout Difficulty","value":"중","unit":"","type":"computed","options":[],"note":"Automatically calculated result","id":55},{"part":"ci","code":"C23_SEL","baseCode":"C23","section":"B. Project Condition","major":"","middle":"Instrument Index","detail":"Instrument Index","value":"3)","unit":"","type":"select","options":[{"value":"1)","text":"1) SPI applied - internal"},{"value":"2)","text":"2) SPI applied - external"},{"value":"3)","text":"3) SPI not applied"}],"note":"Difficulty is derived automatically from the selection","id":56},{"part":"ci","code":"C23_DIFF","baseCode":"C23","section":"B. Project Condition","major":"","middle":"Instrument Index","detail":"Instrument Index Difficulty","value":"중","unit":"","type":"computed","options":[],"note":"Automatically calculated result","id":57},{"part":"ci","code":"C29_SEL","baseCode":"C29","section":"B. Project Condition","major":"OTHERS Difficulty","middle":"3D Modeling","detail":"3D Modeling","value":"2)","unit":"","type":"select","options":[{"value":"1)","text":"1) Reduced compared with the typical FEED modeling & review scope"},{"value":"2)","text":"2) Typical FEED modeling & review scope"},{"value":"3)","text":"3) Expanded compared with the typical FEED modeling & review scope"}],"note":"Difficulty is derived automatically from the selection","id":58},{"part":"ci","code":"C29_DIFF","baseCode":"C29","section":"B. Project Condition","major":"OTHERS Difficulty","middle":"3D Modeling","detail":"3D Modeling Difficulty","value":"중","unit":"","type":"computed","options":[],"note":"Automatically calculated result","id":59},{"part":"ci","code":"C35_VALUE","baseCode":"C35","section":"B. Project Condition","major":"M/H Calculation General","middle":"Base M/H","detail":"Base M/H (per 1M/M)","value":161,"unit":"M/H","type":"number","options":[],"note":"Received from the PM team","id":60},{"part":"ci","code":"C36_VALUE","baseCode":"C36","section":"B. Project Condition","major":"","middle":"Design Duration","detail":"Total Design Duration (months)","value":4,"unit":"Months","type":"number","options":[],"note":"Check the project schedule","id":61},{"part":"ci","code":"C37_VALUE","baseCode":"C37","section":"B. Project Condition","major":"","middle":"Outsourcing Unit Rate","detail":"Outsourcing-Single Unit Rate (KRW)","value":32000,"unit":"KRW","type":"number","options":[],"note":"Received from the PM team","id":62},{"part":"ci","code":"C38_VALUE","baseCode":"C38","section":"B. Project Condition","major":"","middle":"","detail":"Outsourcing-Comprehensive Unit Rate (KRW)","value":39000,"unit":"KRW","type":"number","options":[],"note":"Received from the PM team","id":63},{"part":"tel","code":"CTRL_PROJECT","section":"0. Project Common","major":"Project","middle":"","detail":"PROJECT","value":"","unit":"","type":"text","options":[],"note":"Project name","id":64},{"part":"tel","code":"CTRL_EXTERNAL_MIN","section":"0. Project Common","major":"Outsourcing Minimization","middle":"","detail":"Apply Outsourcing Minimization","value":"No","unit":"","type":"select","options":[{"value":"No","text":"No - standard calculation basis"},{"value":"Yes","text":"Yes - Outsourcing Minimization 75/25"}],"note":"Selecting Yes applies 75% internal / 25% external","id":65},{"part":"tel","code":"A01_QTY","baseCode":"A01","section":"Key Input (Quantity)","major":"Key Input (Quantity)","middle":"System Q'ty","detail":"Telecom.&System Q'ty","value":7,"unit":"Ea","type":"number","options":[],"note":"Enter quantity","id":66},{"part":"tel","code":"A02_QTY","baseCode":"A02","section":"A. Quantity Input","major":"","middle":"Site Size","detail":"m x m","value":187500,"unit":"M^2","type":"number","options":[],"note":"Enter quantity","id":67},{"part":"tel","code":"A03_QTY","baseCode":"A03","section":"A. Quantity Input","major":"","middle":"Building Q'ty","detail":"Building Q'ty","value":7,"unit":"Ea","type":"number","options":[],"note":"if 2 stories or more than 70m, 2ea","id":68},{"part":"tel","code":"A04_QTY","baseCode":"A04","section":"GENERAL","major":"GENERAL","middle":"ITB Review & Clarification","detail":"Meeting & Coordination","value":1,"unit":"Lot","type":"number","options":[],"note":"Enter quantity","id":69},{"part":"tel","code":"A05_QTY","baseCode":"A05","section":"A. Quantity Input","major":"","middle":"","detail":"ITB Study","value":1,"unit":"Lot","type":"number","options":[],"note":"Enter quantity","id":70},{"part":"tel","code":"A06_QTY","baseCode":"A06","section":"A. Quantity Input","major":"","middle":"","detail":"Technical Clarification","value":1,"unit":"Lot","type":"number","options":[],"note":"Enter quantity","id":71},{"part":"tel","code":"A07_QTY","baseCode":"A07","section":"Procurement","major":"Procurement","middle":"MR & TBE","detail":"Telecom.&Security System","value":2,"unit":"Set","type":"number","options":[],"note":"Enter quantity","id":72},{"part":"tel","code":"A08_QTY","baseCode":"A08","section":"A. Quantity Input","major":"","middle":"","detail":"Telecom.&Security Bulk Material","value":1,"unit":"Set","type":"number","options":[],"note":"Enter quantity","id":73},{"part":"tel","code":"A09_QTY","baseCode":"A09","section":"System Architecture","major":"System Architecture","middle":"System Architecture","detail":"Telecom.&Security Specification","value":7,"unit":"Lot","type":"number","options":[],"note":"Enter quantity","id":74},{"part":"tel","code":"A10_QTY","baseCode":"A10","section":"DRAWING","major":"DRAWING","middle":"Block Diagram","detail":"Telecom.&Security Block Diagram","value":7,"unit":"Sheet","type":"number","options":[],"note":"Enter quantity","id":75},{"part":"tel","code":"A11_QTY","baseCode":"A11","section":"A. Quantity Input","major":"","middle":"Layout Drawing","detail":"Telecom.&Security Cable Routing layout","value":11.166666666666668,"unit":"Sheet","type":"number","options":[],"note":"Enter quantity","id":76},{"part":"tel","code":"A12_QTY","baseCode":"A12","section":"A. Quantity Input","major":"","middle":"","detail":"Telecom.&Security Cable Tray, Trench, Ductbank Layout","value":5.583333333333334,"unit":"Sheet","type":"number","options":[],"note":"Enter quantity","id":77},{"part":"tel","code":"A13_QTY","baseCode":"A13","section":"A. Quantity Input","major":"","middle":"Summary / List","detail":"Telecom.&Security Cable Schedule","value":18.75,"unit":"Sheet","type":"number","options":[],"note":"Enter quantity","id":78},{"part":"tel","code":"A14_QTY","baseCode":"A14","section":"A. Quantity Input","major":"","middle":"Detail Drawing","detail":"Telecom.&Security Typical Installation Details","value":7,"unit":"Sheet","type":"number","options":[],"note":"Enter quantity","id":79},{"part":"tel","code":"A15_QTY","baseCode":"A15","section":"MTO & INFORM TO OTHER DEPTS.","major":"MTO & INFORM TO OTHER DEPTS.","middle":"MTO","detail":"BM Take-off & BOQ Preparation","value":1,"unit":"Lot","type":"number","options":[],"note":"Enter quantity","id":80},{"part":"tel","code":"A16_QTY","baseCode":"A16","section":"A. Quantity Input","major":"","middle":"Inform to Other Depts.","detail":"Data Preparation for Inform to Other Depts.","value":1,"unit":"Lot","type":"number","options":[],"note":"Enter quantity","id":81},{"part":"tel","code":"A17_QTY","baseCode":"A17","section":"A. Quantity Input","major":"","middle":"CER","detail":"Cold Eye Review","value":1,"unit":"Lot","type":"number","options":[],"note":"Enter quantity","id":82},{"part":"tel","code":"A18_QTY","baseCode":"A18","section":"OTHERS","major":"OTHERS","middle":"3D Model","detail":"3D Modeling","value":1,"unit":"Ea","type":"number","options":[],"note":"Enter quantity","id":83},{"part":"tel","code":"A19_QTY","baseCode":"A19","section":"A. Quantity Input","major":"","middle":"SPI","detail":"Study & Calculation","value":1,"unit":"Ea","type":"number","options":[],"note":"Enter quantity","id":84},{"part":"tel","code":"A20_QTY","baseCode":"A20","section":"A. Quantity Input","major":"","middle":"Tie-in","detail":"Telecom. Tie-in List","value":1,"unit":"Ea","type":"number","options":[],"note":"Enter quantity","id":85},{"part":"tel","code":"C01_SEL","baseCode":"C01","section":"B. Project Condition","major":"Project Standard Difficulty\n(General)","middle":"ITB Requirements","detail":"ITB Requirements","value":"1)","unit":"","type":"select","options":[{"value":"1)","text":"1) The ITB is unclear and many items need clarification"},{"value":"2)","text":"2) The ITB documentation is sufficient"}],"note":"Difficulty is derived automatically from the selection","id":86},{"part":"tel","code":"C01_DIFF","baseCode":"C01","section":"B. Project Condition","major":"Project Standard Difficulty\n(General)","middle":"ITB Requirements","detail":"ITB Requirements Difficulty","value":"중","unit":"","type":"computed","options":[],"note":"Automatically calculated result","id":87},{"part":"tel","code":"C03_SEL","baseCode":"C03","section":"B. Project Condition","major":"System Difficulty","middle":"System Block Diagram & Specification","detail":"System Block Diagram & Specification","value":"1)","unit":"","type":"select","options":[{"value":"1)","text":"1) Not in the ITB, so it must be prepared from scratch"},{"value":"2)","text":"2) The ITB documentation is sufficient"}],"note":"Difficulty is derived automatically from the selection","id":88},{"part":"tel","code":"C03_DIFF","baseCode":"C03","section":"B. Project Condition","major":"System Difficulty","middle":"System Block Diagram & Specification","detail":"System Block Diagram & Specification Difficulty","value":"중","unit":"","type":"computed","options":[],"note":"Automatically calculated result","id":89},{"part":"tel","code":"C05_SEL","baseCode":"C05","section":"B. Project Condition","major":"Drawing Difficulty","middle":"Telecom.&Security Cable Tray, Trench, Ductbank Layout","detail":"Telecom.&Security Cable Tray, Trench, Ductbank Layout","value":"1)","unit":"","type":"select","options":[{"value":"1)","text":"1) Saudi, Kuwait or UAE projects"},{"value":"2)","text":"2) Others"}],"note":"Difficulty is derived automatically from the selection","id":90},{"part":"tel","code":"C05_DIFF","baseCode":"C05","section":"B. Project Condition","major":"Drawing Difficulty","middle":"Telecom.&Security Cable Tray, Trench, Ductbank Layout","detail":"Telecom.&Security Cable Tray, Trench, Ductbank Layout Difficulty","value":"상","unit":"","type":"computed","options":[],"note":"Automatically calculated result","id":91},{"part":"tel","code":"C09_VALUE","baseCode":"C09","section":"B. Project Condition","major":"M/H Calculation General","middle":"Base M/H","detail":"Base M/H (per 1M/M)","value":161,"unit":"M/H","type":"number","options":[],"note":"Received from the PM team","id":92},{"part":"tel","code":"C10_VALUE","baseCode":"C10","section":"B. Project Condition","major":"","middle":"Design Duration","detail":"Total Design Duration (months)","value":4,"unit":"Months","type":"number","options":[],"note":"Check the project schedule","id":93},{"part":"tel","code":"C11_VALUE","baseCode":"C11","section":"B. Project Condition","major":"","middle":"Outsourcing Unit Rate","detail":"Outsourcing-Single Unit Rate (KRW)","value":32000,"unit":"KRW","type":"number","options":[],"note":"Received from the PM team","id":94},{"part":"tel","code":"C12_VALUE","baseCode":"C12","section":"B. Project Condition","major":"","middle":"","detail":"Outsourcing-Comprehensive Unit Rate (KRW)","value":39000,"unit":"KRW","type":"number","options":[],"note":"Received from the PM team","id":95}],"outputs":[{"part":"ci","code":"A04","activity":"Meeting & Coordination","unit":"Lot","qty":1.0,"baseIntUnit":150.0,"baseExtUnit":0.0,"std":{"activity":"Meeting & Coordination","unit":"Lot","int":{"SPI":0.0,"상":220.0,"중":150.0,"하":80.0},"ext":{"SPI":0.0,"상":0.0,"중":0.0,"하":0.0},"guide":"1) Difficulty criteria\n- Apply the Project standard difficulty"}},{"part":"ci","code":"A05","activity":"Review & Interface work.","unit":"Lot","qty":1.0,"baseIntUnit":100.0,"baseExtUnit":200.0,"std":{"activity":"Review & Interface work.","unit":"Lot","int":{"SPI":0.0,"상":150.0,"중":100.0,"하":50.0},"ext":{"SPI":0.0,"상":250.0,"중":200.0,"하":100.0},"guide":""}},{"part":"ci","code":"A06","activity":"Client Coordination (Technical Clarification)","unit":"Lot","qty":1.0,"baseIntUnit":100.0,"baseExtUnit":0.0,"std":{"activity":"Client Coordination (Technical Clarification)","unit":"Lot","int":{"SPI":0.0,"상":150.0,"중":100.0,"하":50.0},"ext":{"SPI":0.0,"상":0.0,"중":0.0,"하":0.0},"guide":""}},{"part":"ci","code":"A07","activity":"Instrumentation & Automation Design Criteria","unit":"Set","qty":1.0,"baseIntUnit":80.0,"baseExtUnit":0.0,"std":{"activity":"Instrumentation & Automation Design Criteria","unit":"Set","int":{"SPI":0.0,"상":200.0,"중":160.0,"하":80.0},"ext":{"SPI":0.0,"상":0.0,"중":0.0,"하":0.0},"guide":"1) Difficulty criteria\n - High : New Generation and Project standard difficulty 'High'.\n - Medium : New Generation and Project standard difficulty 'Medium' / 'Low'.\n - Low : HEC Standard Specification applied."}},{"part":"ci","code":"A08","activity":"Control System","unit":"Set","qty":1.0,"baseIntUnit":120.0,"baseExtUnit":0.0,"std":{"activity":"Control System","unit":"Set","int":{"SPI":0.0,"상":36.0,"중":30.0,"하":24.0},"ext":{"SPI":0.0,"상":0.0,"중":0.0,"하":0.0},"guide":"1) Difficulty criteria\n- Apply the Project standard difficulty"}},{"part":"ci","code":"A09","activity":"Packaged Instrument (Metering, Analzyer, TGS & etc.)","unit":"Set","qty":2.0,"baseIntUnit":100.0,"baseExtUnit":0.0,"std":{"activity":"Packaged Instrument (Metering, Analzyer, TGS & etc.)","unit":"Set","int":{"SPI":0.0,"상":130.0,"중":100.0,"하":40.0},"ext":{"SPI":0.0,"상":0.0,"중":0.0,"하":0.0},"guide":""}},{"part":"ci","code":"A10","activity":"Field Instrument","unit":"Set","qty":3.0,"baseIntUnit":60.0,"baseExtUnit":0.0,"std":{"activity":"Field Instrument","unit":"Set","int":{"SPI":0.0,"상":12.0,"중":10.0,"하":8.0},"ext":{"SPI":0.0,"상":0.0,"중":0.0,"하":0.0},"guide":""}},{"part":"ci","code":"A11","activity":"Others","unit":"Set","qty":1.0,"baseIntUnit":60.0,"baseExtUnit":0.0,"std":{"activity":"Others","unit":"Set","int":{"SPI":0.0,"상":80.0,"중":60.0,"하":20.0},"ext":{"SPI":0.0,"상":0.0,"중":0.0,"하":0.0},"guide":""}},{"part":"ci","code":"A12","activity":"Cv (Valve Coefficient) Calculation for Sizing","unit":"Set","qty":485.0,"baseIntUnit":0.4,"baseExtUnit":0.0,"std":{"activity":"Cv (Valve Coefficient) Calculation for Sizing","unit":"Set","int":{"SPI":0.0,"상":0.0,"중":0.4,"하":0.0},"ext":{"SPI":0.0,"상":0.0,"중":0.0,"하":0.0},"guide":"1) M/H is counted only when a separate deliverable is issued or the work is performed in-house.\n2) Difficulty is uniformly \"Medium\"."}},{"part":"ci","code":"A13","activity":"PSV Orificice Calculation for Sizing","unit":"Set","qty":323.0,"baseIntUnit":0.4,"baseExtUnit":0.0,"std":{"activity":"PSV Orificice Calculation for Sizing","unit":"Set","int":{"SPI":0.0,"상":0.0,"중":0.4,"하":0.0},"ext":{"SPI":0.0,"상":0.0,"중":0.0,"하":0.0},"guide":"1) M/H is counted only when a separate deliverable is issued or the work is performed in-house.\n2) Difficulty is uniformly \"Medium\"."}},{"part":"ci","code":"A14","activity":"Flow Element Calculation","unit":"Set","qty":242.0,"baseIntUnit":0.4,"baseExtUnit":0.0,"std":{"activity":"Flow Element Calculation","unit":"Set","int":{"SPI":0.0,"상":0.0,"중":0.4,"하":0.0},"ext":{"SPI":0.0,"상":0.0,"중":0.0,"하":0.0},"guide":"1) M/H is counted only when a separate deliverable is issued or the work is performed in-house.\n2) Difficulty is uniformly \"Medium\"."}},{"part":"ci","code":"A15","activity":"Data Sheets (Valve & In-line Instruments)","unit":"Ea","qty":1616.0,"baseIntUnit":0.0,"baseExtUnit":0.3,"std":null},{"part":"ci","code":"A16","activity":"Summary List (Other Instruments)","unit":"Ea","qty":4846.0,"baseIntUnit":0.05,"baseExtUnit":0.0,"std":{"activity":"Summary List (Other Instruments)","unit":"Ea","int":{"SPI":0.0,"상":0.06,"중":0.05,"하":0.05},"ext":{"SPI":0.0,"상":0.0,"중":0.0,"하":0.0},"guide":""}},{"part":"ci","code":"A17","activity":"Control System","unit":"Set","qty":1.0,"baseIntUnit":30.0,"baseExtUnit":0.0,"std":{"activity":"Control System","unit":"Set","int":{"SPI":0.0,"상":36.0,"중":30.0,"하":24.0},"ext":{"SPI":0.0,"상":0.0,"중":0.0,"하":0.0},"guide":"1) Difficulty criteria\n- Apply the Project standard difficulty"}},{"part":"ci","code":"A18","activity":"Packaged Instrument","unit":"Set","qty":3.0,"baseIntUnit":20.0,"baseExtUnit":0.0,"std":{"activity":"Packaged Instrument","unit":"Set","int":{"SPI":0.0,"상":24.0,"중":20.0,"하":16.0},"ext":{"SPI":0.0,"상":0.0,"중":0.0,"하":0.0},"guide":""}},{"part":"ci","code":"A19","activity":"Valves","unit":"Set","qty":7.0,"baseIntUnit":15.0,"baseExtUnit":0.0,"std":{"activity":"Valves","unit":"Set","int":{"SPI":0.0,"상":18.0,"중":15.0,"하":12.0},"ext":{"SPI":0.0,"상":0.0,"중":0.0,"하":0.0},"guide":""}},{"part":"ci","code":"A20","activity":"Field Instrument","unit":"Set","qty":10.0,"baseIntUnit":10.0,"baseExtUnit":0.0,"std":{"activity":"Field Instrument","unit":"Set","int":{"SPI":0.0,"상":12.0,"중":10.0,"하":8.0},"ext":{"SPI":0.0,"상":0.0,"중":0.0,"하":0.0},"guide":""}},{"part":"ci","code":"A17","activity":"Control System","unit":"Set","qty":1.0,"baseIntUnit":30.0,"baseExtUnit":0.0,"std":{"activity":"Control System","unit":"Set","int":{"SPI":0.0,"상":36.0,"중":30.0,"하":24.0},"ext":{"SPI":0.0,"상":0.0,"중":0.0,"하":0.0},"guide":"1) Difficulty criteria\n- Apply the Project standard difficulty"}},{"part":"ci","code":"A18","activity":"Packaged Instrument","unit":"Set","qty":3.0,"baseIntUnit":20.0,"baseExtUnit":0.0,"std":{"activity":"Packaged Instrument","unit":"Set","int":{"SPI":0.0,"상":24.0,"중":20.0,"하":16.0},"ext":{"SPI":0.0,"상":0.0,"중":0.0,"하":0.0},"guide":""}},{"part":"ci","code":"A19","activity":"Valves","unit":"Set","qty":7.0,"baseIntUnit":15.0,"baseExtUnit":0.0,"std":{"activity":"Valves","unit":"Set","int":{"SPI":0.0,"상":18.0,"중":15.0,"하":12.0},"ext":{"SPI":0.0,"상":0.0,"중":0.0,"하":0.0},"guide":""}},{"part":"ci","code":"A20","activity":"Field Instrument","unit":"Set","qty":10.0,"baseIntUnit":10.0,"baseExtUnit":0.0,"std":{"activity":"Field Instrument","unit":"Set","int":{"SPI":0.0,"상":12.0,"중":10.0,"하":8.0},"ext":{"SPI":0.0,"상":0.0,"중":0.0,"하":0.0},"guide":""}},{"part":"ci","code":"A21","activity":"Control System Configuration","unit":"A3","qty":2.0,"baseIntUnit":40.0,"baseExtUnit":4.0,"std":{"activity":"Control System Configuration","unit":"A3","int":{"SPI":0.0,"상":50.0,"중":40.0,"하":30.0},"ext":{"SPI":0.0,"상":4.8,"중":4.0,"하":3.2},"guide":"1) Draft only; the design is performed by an HEC engineer\n2) Difficulty criteria\n - High : The drawing is not in the ITB, the concept must be established, and the Project standard difficulty is 'High'\n - Medium : The drawing is not in the ITB, the concept must be established, and the Project standard difficulty is 'Medium' / 'Low'\n - Low : The drawing is included in the ITB but needs substantial upgrading"}},{"part":"ci","code":"A22","activity":"Instrument Cable Routing layout","unit":"A1","qty":18.0,"baseIntUnit":4.0,"baseExtUnit":35.0,"std":{"activity":"Instrument Cable Routing layout","unit":"A1","int":{"SPI":0.0,"상":5.0,"중":4.0,"하":3.0},"ext":{"SPI":0.0,"상":42.0,"중":35.0,"하":28.0},"guide":"1) Shows JB and LCP locations\n2) Shows cable tray routes and typical tray sections\n3) Shows cable trench and ductbank routes and typical trench / ductbank sections\n4) Difficulty follows the Project standard difficulty"}},{"part":"ci","code":"A23","activity":"Instrument Cable Tray, Trench, Ductbank Layout","unit":"A3","qty":18.0,"baseIntUnit":2.5,"baseExtUnit":15.0,"std":{"activity":"Instrument Cable Tray, Trench, Ductbank Layout","unit":"A3","int":{"SPI":0.0,"상":3.0,"중":2.5,"하":2.0},"ext":{"SPI":0.0,"상":18.0,"중":15.0,"하":12.0},"guide":"1) Shows tray size, routing, layer and main support\n2) Shows trench detail, size and routing\n3) Shows duct bank size and location\n4) Difficulty follows the Project standard difficulty"}},{"part":"ci","code":"A24","activity":"JB & Wiring Layout (Sketched Drawing)","unit":"A3","qty":18.0,"baseIntUnit":2.5,"baseExtUnit":15.0,"std":{"activity":"JB & Wiring Layout (Sketched Drawing)","unit":"A3","int":{"SPI":0.0,"상":3.0,"중":2.5,"하":2.0},"ext":{"SPI":0.0,"상":18.0,"중":15.0,"하":12.0},"guide":"1) Shows multi-cable and tray routing\n2) Shows instrument, JB (incl. package JB), LCP and LCS locations\n3) Difficulty follows the Project standard difficulty"}},{"part":"ci","code":"A25","activity":"Control Room / PIB Equipment Arrangement layout","unit":"A3","qty":3.0,"baseIntUnit":4.0,"baseExtUnit":30.0,"std":{"activity":"Control Room / PIB Equipment Arrangement layout","unit":"A3","int":{"SPI":0.0,"상":5.0,"중":4.0,"하":3.0},"ext":{"SPI":0.0,"상":36.0,"중":30.0,"하":24.0},"guide":"1) States cabinet type, size and scope (package, electrical, etc.)\n2) Difficulty criteria\n - High : The drawing is not in the ITB, must be prepared, and the Project standard difficulty is 'High'\n - Medium : The drawing is not in the ITB, must be prepared, and the Project standard difficulty is 'Medium' / 'Low'\n - Low : The drawing is included in the ITB"}},{"part":"ci","code":"A26","activity":"Instrument Index and I/O List","unit":"Ea","qty":6462.0,"baseIntUnit":0.3,"baseExtUnit":0.15,"std":{"activity":"Instrument Index and I/O List","unit":"Ea","int":{"SPI":0.5,"상":0.36,"중":0.3,"하":0.24},"ext":{"SPI":0.3,"상":0.18,"중":0.15,"하":0.12},"guide":"1) Tag no., Inst. type, P&ID no.\n2) Piping class, line size, location, system, I/O type, etc.\n3) Difficulty follows the Project standard difficulty; use 'SPI' when SPI input is used"}},{"part":"ci","code":"A27","activity":"Instrument Cable Schedule","unit":"Ea","qty":1293.0,"baseIntUnit":0.05,"baseExtUnit":0.1,"std":{"activity":"Instrument Cable Schedule","unit":"Ea","int":{"SPI":0.0,"상":0.06,"중":0.05,"하":0.04},"ext":{"SPI":0.0,"상":0.12,"중":0.1,"하":0.08},"guide":"1) Cable no., from/to, cable code\n2) Cable gland spec. & q'ty\n3) Multi-cable length taken from the JB & wiring layout\n4) Difficulty follows the Project standard difficulty"}},{"part":"ci","code":"A28","activity":"Typical Hook-up drawings","unit":"A3","qty":81.0,"baseIntUnit":0.3,"baseExtUnit":3.0,"std":{"activity":"Typical Hook-up drawings","unit":"A3","int":{"SPI":0.0,"상":0.36,"중":0.3,"하":0.24},"ext":{"SPI":0.0,"상":3.6,"중":3.0,"하":2.6},"guide":"1) A type-assignment index per tag (Excel) must be prepared\n2) Difficulty follows the Project standard difficulty"}},{"part":"ci","code":"A29","activity":"Instrument Typical Installation Details","unit":"A3","qty":50.0,"baseIntUnit":0.2,"baseExtUnit":2.0,"std":{"activity":"Instrument Typical Installation Details","unit":"A3","int":{"SPI":0.0,"상":0.24,"중":0.2,"하":0.16},"ext":{"SPI":0.0,"상":2.4,"중":2.0,"하":1.6},"guide":"1) A type-assignment index per tag (Excel) must be prepared\n2) Difficulty follows the Project standard difficulty"}},{"part":"ci","code":"A30","activity":"- Major 3rd Party System Interface","unit":"Set","qty":12.0,"baseIntUnit":5.0,"baseExtUnit":5.0,"std":{"activity":"- Major 3rd Party System Interface","unit":"Set","int":{"SPI":0.0,"상":0.0,"중":5.0,"하":0.0},"ext":{"SPI":0.0,"상":0.0,"중":5.0,"하":0.0},"guide":"1) Informs for skid JB, LCP, LCS and loose instruments\n2) Cable informs for HEC-scope cables\n3) Review of vendor data and reference project documents"}},{"part":"ci","code":"A31","activity":"- Minor 3rd Party System Interface","unit":"Set","qty":20.0,"baseIntUnit":2.0,"baseExtUnit":2.0,"std":{"activity":"- Minor 3rd Party System Interface","unit":"Set","int":{"SPI":0.0,"상":0.0,"중":2.0,"하":0.0},"ext":{"SPI":0.0,"상":0.0,"중":2.0,"하":0.0},"guide":""}},{"part":"ci","code":"A32","activity":"BM Take-off & BOQ Preparation","unit":"Lot","qty":1.0,"baseIntUnit":120.0,"baseExtUnit":600.0,"std":{"activity":"BM Take-off & BOQ Preparation","unit":"Lot","int":{"SPI":0.0,"상":0.0,"중":0.0,"하":0.0},"ext":{"SPI":0.0,"상":0.0,"중":0.0,"하":0.0},"guide":"1) Take-off up to the 3rd MTO issue\n2) Cables are taken off after the cable schedule is prepared\n3) Ladder tray & fittings are taken off from the actual drawings\n4) Perforated tray is taken off after the cable route sketch is prepared\n5) Cable glands are taken off from the cable schedule\n6) JB, air pipe & fittings are taken off after the BM sketch is prepared\n7) Tubing, hook-up valves, fittings, gaskets & bolts are taken off using the hook-up quantity table (Excel)"}},{"part":"ci","code":"A33","activity":"Data Preparation for Inform to Other Depts.","unit":"Lot","qty":1.0,"baseIntUnit":100.0,"baseExtUnit":190.0,"std":{"activity":"Data Preparation for Inform to Other Depts.","unit":"Lot","int":{"SPI":0.0,"상":120.0,"중":100.0,"하":80.0},"ext":{"SPI":0.0,"상":200.0,"중":190.0,"하":180.0},"guide":"1) Cable tray & duct loading data\n2) Cable trench, ductbank & foundation data\n3) Electrical load list\n4) Heat dissipation data\n5) Heat tracing instrument list (ET, ST, CT)\n6) Field grounding inform\n7) Difficulty follows the Project standard difficulty"}},{"part":"ci","code":"A34","activity":"3D Modeling","unit":"Lot","qty":1.0,"baseIntUnit":30.0,"baseExtUnit":250.0,"std":{"activity":"3D Modeling","unit":"Lot","int":{"SPI":0.0,"상":40.0,"중":30.0,"하":20.0},"ext":{"SPI":0.0,"상":300.0,"중":250.0,"하":200.0},"guide":"1) Difficulty follows the volume of the modeling & review scope"}},{"part":"ci","code":"A35","activity":"SPI SEED DB","unit":"Lot","qty":1.0,"baseIntUnit":80.0,"baseExtUnit":0.0,"std":{"activity":"SPI SEED DB","unit":"Lot","int":{"SPI":0.0,"상":100.0,"중":80.0,"하":60.0},"ext":{"SPI":0.0,"상":0.0,"중":0.0,"하":0.0},"guide":"1) Difficulty follows the Project standard difficulty"}},{"part":"ci","code":"A36","activity":"Cold Eye Review","unit":"Lot","qty":1.0,"baseIntUnit":20.0,"baseExtUnit":0.0,"std":{"activity":"Cold Eye Review","unit":"Lot","int":{"SPI":0.0,"상":30.0,"중":20.0,"하":15.0},"ext":{"SPI":0.0,"상":0.0,"중":0.0,"하":0.0},"guide":"1) Difficulty follows the Project standard difficulty"}},{"part":"tel","code":"A04","activity":"Meeting & Coordination","unit":"Lot","qty":1.0,"baseIntUnit":60.0,"baseExtUnit":0.0,"std":{"activity":"Meeting & Coordination","unit":"Lot","int":{"상":0.0,"중":60.0,"하":30.0},"ext":{"상":0.0,"중":0.0,"하":0.0},"guide":"1) Difficulty criteria\n - Medium : The ITB is unclear and many items need clarification\n - Low : The ITB documentation is sufficient"}},{"part":"tel","code":"A05","activity":"ITB Study","unit":"Lot","qty":1.0,"baseIntUnit":30.0,"baseExtUnit":0.0,"std":null},{"part":"tel","code":"A06","activity":"Technical Clarification","unit":"Lot","qty":1.0,"baseIntUnit":30.0,"baseExtUnit":0.0,"std":{"activity":"Technical Clarification","unit":"Lot","int":{"상":0.0,"중":30.0,"하":15.0},"ext":{"상":0.0,"중":0.0,"하":0.0},"guide":""}},{"part":"tel","code":"A09","activity":"Telecom.&Security Specification","unit":"Ea","qty":7.0,"baseIntUnit":15.0,"baseExtUnit":0.0,"std":{"activity":"Telecom.&Security Specification","unit":"Set","int":{"상":0.0,"중":15.0,"하":10.0},"ext":{"상":0.0,"중":0.0,"하":0.0},"guide":"1) Difficulty criteria\n - Medium : New Generation\n - Low : HEC Standard Specification applied."}},{"part":"tel","code":"A07","activity":"Telecom.&Security System","unit":"Set","qty":2.0,"baseIntUnit":30.0,"baseExtUnit":0.0,"std":{"activity":"Telecom.&Security System","unit":"Set","int":{"상":0.0,"중":30.0,"하":0.0},"ext":{"상":0.0,"중":0.0,"하":0.0},"guide":""}},{"part":"tel","code":"A08","activity":"Telecom.&Security Bulk Material","unit":"Set","qty":1.0,"baseIntUnit":10.0,"baseExtUnit":0.0,"std":{"activity":"Telecom.&Security Bulk Material","unit":"Set","int":{"상":0.0,"중":10.0,"하":0.0},"ext":{"상":0.0,"중":0.0,"하":0.0},"guide":""}},{"part":"tel","code":"A10","activity":"Telecom.&Security Block Diagram","unit":"Ea","qty":7.0,"baseIntUnit":15.0,"baseExtUnit":5.0,"std":{"activity":"Telecom.&Security Block Diagram","unit":"Set","int":{"상":0.0,"중":15.0,"하":10.0},"ext":{"상":0.0,"중":5.0,"하":5.0},"guide":"1) Draft only; the design is performed by an HEC engineer\n2) Difficulty criteria\n - Medium : The drawing is not in the ITB, so the concept must be established\n - Low : The drawing is included in the ITB but needs substantial upgrading"}},{"part":"tel","code":"A11","activity":"Telecom.&Security Cable Routing layout","unit":"A3","qty":11.166666666666668,"baseIntUnit":4.0,"baseExtUnit":20.0,"std":{"activity":"Telecom.&Security Cable Routing layout","unit":"A1","int":{"상":0.0,"중":4.0,"하":0.0},"ext":{"상":0.0,"중":20.0,"하":0.0},"guide":"1) Shows JB, LCP and equipment locations\n2) Shows cable tray routes and typical tray sections\n3) Shows cable trench and ductbank routes and typical trench / ductbank sections\n4) Difficulty is uniformly \"Medium\""}},{"part":"tel","code":"A12","activity":"Telecom.&Security Cable Tray, Trench, Ductbank Layout","unit":"A3","qty":5.583333333333334,"baseIntUnit":3.0,"baseExtUnit":10.0,"std":{"activity":"Telecom.&Security Cable Tray, Trench, Ductbank Layout","unit":"A3","int":{"상":3.0,"중":2.5,"하":0.0},"ext":{"상":15.0,"중":10.0,"하":0.0},"guide":"1) Shows tray size, routing, layer and main support\n2) Shows trench detail, size and routing\n3) Shows duct bank size and location\n4) Difficulty is \"Medium\" (\"High\" for Saudi, Kuwait and UAE projects)"}},{"part":"tel","code":"A13","activity":"Telecom.&Security Cable Schedule","unit":"A3","qty":18.75,"baseIntUnit":0.05,"baseExtUnit":0.1,"std":{"activity":"Telecom.&Security Cable Schedule","unit":"Ea","int":{"상":0.0,"중":0.05,"하":0.0},"ext":{"상":0.0,"중":0.1,"하":0.0},"guide":"1) Cable no., from/to, cable code\n2) Cable gland spec. & q'ty\n3) Difficulty is uniformly \"Medium\""}},{"part":"tel","code":"A14","activity":"Telecom.&Security Typical Installation Details","unit":"A3","qty":7.0,"baseIntUnit":0.2,"baseExtUnit":2.0,"std":{"activity":"Telecom.&Security Typical Installation Details","unit":"A3","int":{"상":0.0,"중":0.2,"하":0.0},"ext":{"상":0.0,"중":2.0,"하":0.0},"guide":"1) A type-assignment index per telecom equipment item (Excel) must be prepared\n2) Difficulty is uniformly \"Medium\""}},{"part":"tel","code":"A15","activity":"BM Take-off & BOQ Preparation","unit":"Lot","qty":1.0,"baseIntUnit":80.0,"baseExtUnit":200.0,"std":{"activity":"BM TAKE-OFF & BOQ PREPARATION","unit":"Lot","int":{"상":0.0,"중":0.0,"하":0.0},"ext":{"상":0.0,"중":0.0,"하":0.0},"guide":"1) Take-off up to the 3rd MTO issue\n2) Cables are taken off after the cable schedule is prepared\n3) Cable tray & fittings are taken off from the actual drawings and the cable route sketch\n4) Cable glands are taken off from the cable schedule\n5) Material per telecom equipment item is taken off from the BM sketch"}},{"part":"tel","code":"A16","activity":"Data Preparation for Inform to Other Depts.","unit":"Lot","qty":1.0,"baseIntUnit":50.0,"baseExtUnit":100.0,"std":{"activity":"Data Preparation for INFORM to Other Depts.","unit":"Lot","int":{"상":0.0,"중":50.0,"하":0.0},"ext":{"상":0.0,"중":100.0,"하":0.0},"guide":"1) Cable tray & duct loading data\n2) Cable trench, ductbank & foundation data\n3) Electrical load list\n4) Heat dissipation data\n5) Field grounding inform\n6) Difficulty is uniformly \"Medium\""}},{"part":"tel","code":"A17","activity":"Cold Eye Review","unit":"Lot","qty":1.0,"baseIntUnit":10.0,"baseExtUnit":0.0,"std":{"activity":"COLD EYE REVIEW","unit":"Lot","int":{"상":0.0,"중":10.0,"하":0.0},"ext":{"상":0.0,"중":0.0,"하":0.0},"guide":"Based on one day of effort"}},{"part":"tel","code":"A18","activity":"3D Modeling","unit":"Lot","qty":1.0,"baseIntUnit":10.0,"baseExtUnit":60.0,"std":{"activity":"3D Modeling","unit":"Lot","int":{"상":0.0,"중":10.0,"하":0.0},"ext":{"상":0.0,"중":60.0,"하":0.0},"guide":""}},{"part":"tel","code":"A19","activity":"Study & Calculation","unit":"Set","qty":1.0,"baseIntUnit":20.0,"baseExtUnit":0.0,"std":{"activity":"Study & Calculation","unit":"Set","int":{"상":0.0,"중":20.0,"하":0.0},"ext":{"상":0.0,"중":0.0,"하":0.0},"guide":"1) Internal M/H is allocated case by case, and a 3rd party is engaged when required\n2) Study & calculation items\n - Wireless Coverage Study\n - Radio Coverage Study\n - CCTV Coverage Study\n - Sound Coverage Study & Review\n - Link Budget Calculation"}},{"part":"tel","code":"A20","activity":"Telecom. Tie-in List","unit":"Lot","qty":1.0,"baseIntUnit":20.0,"baseExtUnit":0.0,"std":{"activity":"Telecom. Tie-in List","unit":"Lot","int":{"상":0.0,"중":20.0,"하":0.0},"ext":{"상":0.0,"중":0.0,"하":0.0},"guide":""}}],"std":{"ci":{"meetingcoordination":{"activity":"Meeting & Coordination","unit":"Lot","int":{"SPI":0.0,"상":220.0,"중":150.0,"하":80.0},"ext":{"SPI":0.0,"상":0.0,"중":0.0,"하":0.0},"guide":"1) Difficulty criteria\n- Apply the Project standard difficulty"},"reviewinterfacework":{"activity":"Review & Interface work.","unit":"Lot","int":{"SPI":0.0,"상":150.0,"중":100.0,"하":50.0},"ext":{"SPI":0.0,"상":250.0,"중":200.0,"하":100.0},"guide":""},"발주처협의technicalclarification":{"activity":"Client Coordination (Technical Clarification)","unit":"Lot","int":{"SPI":0.0,"상":150.0,"중":100.0,"하":50.0},"ext":{"SPI":0.0,"상":0.0,"중":0.0,"하":0.0},"guide":""},"instrumentationautomationdesigncriteria":{"activity":"Instrumentation & Automation Design Criteria","unit":"Set","int":{"SPI":0.0,"상":200.0,"중":160.0,"하":80.0},"ext":{"SPI":0.0,"상":0.0,"중":0.0,"하":0.0},"guide":"1) Difficulty criteria\n - High : New Generation and Project standard difficulty 'High'.\n - Medium : New Generation and Project standard difficulty 'Medium' / 'Low'.\n - Low : HEC Standard Specification applied."},"controlsystem":{"activity":"Control System","unit":"Set","int":{"SPI":0.0,"상":36.0,"중":30.0,"하":24.0},"ext":{"SPI":0.0,"상":0.0,"중":0.0,"하":0.0},"guide":"1) Difficulty criteria\n- Apply the Project standard difficulty"},"packagedinstrumentmeteringanalzyertgsetc":{"activity":"Packaged Instrument (Metering, Analzyer, TGS & etc.)","unit":"Set","int":{"SPI":0.0,"상":130.0,"중":100.0,"하":40.0},"ext":{"SPI":0.0,"상":0.0,"중":0.0,"하":0.0},"guide":""},"fieldinstrument":{"activity":"Field Instrument","unit":"Set","int":{"SPI":0.0,"상":12.0,"중":10.0,"하":8.0},"ext":{"SPI":0.0,"상":0.0,"중":0.0,"하":0.0},"guide":""},"others":{"activity":"Others","unit":"Set","int":{"SPI":0.0,"상":80.0,"중":60.0,"하":20.0},"ext":{"SPI":0.0,"상":0.0,"중":0.0,"하":0.0},"guide":""},"cvvalvecoefficientcalculationforsizing":{"activity":"Cv (Valve Coefficient) Calculation for Sizing","unit":"Set","int":{"SPI":0.0,"상":0.0,"중":0.4,"하":0.0},"ext":{"SPI":0.0,"상":0.0,"중":0.0,"하":0.0},"guide":"1) M/H is counted only when a separate deliverable is issued or the work is performed in-house.\n2) Difficulty is uniformly \"Medium\"."},"psvorificicecalculationforsizing":{"activity":"PSV Orificice Calculation for Sizing","unit":"Set","int":{"SPI":0.0,"상":0.0,"중":0.4,"하":0.0},"ext":{"SPI":0.0,"상":0.0,"중":0.0,"하":0.0},"guide":"1) M/H is counted only when a separate deliverable is issued or the work is performed in-house.\n2) Difficulty is uniformly \"Medium\"."},"flowelementcalculation":{"activity":"Flow Element Calculation","unit":"Set","int":{"SPI":0.0,"상":0.0,"중":0.4,"하":0.0},"ext":{"SPI":0.0,"상":0.0,"중":0.0,"하":0.0},"guide":"1) M/H is counted only when a separate deliverable is issued or the work is performed in-house.\n2) Difficulty is uniformly \"Medium\"."},"datasheetvalveinlineinstruments":{"activity":"Data Sheet (Valve & In-line Instruments)","unit":"Ea","int":{"SPI":0.5,"상":0.3,"중":0.2,"하":0.2},"ext":{"SPI":0.3,"상":0.0,"중":0.0,"하":0.0},"guide":"1) Difficulty criteria\n- Apply the Project standard difficulty; use 'SPI' when SPI input is used"},"summarylistotherinstruments":{"activity":"Summary List (Other Instruments)","unit":"Ea","int":{"SPI":0.0,"상":0.06,"중":0.05,"하":0.05},"ext":{"SPI":0.0,"상":0.0,"중":0.0,"하":0.0},"guide":""},"packagedinstrument":{"activity":"Packaged Instrument","unit":"Set","int":{"SPI":0.0,"상":24.0,"중":20.0,"하":16.0},"ext":{"SPI":0.0,"상":0.0,"중":0.0,"하":0.0},"guide":""},"valves":{"activity":"Valves","unit":"Set","int":{"SPI":0.0,"상":18.0,"중":15.0,"하":12.0},"ext":{"SPI":0.0,"상":0.0,"중":0.0,"하":0.0},"guide":""},"controlsystemconfiguration":{"activity":"Control System Configuration","unit":"A3","int":{"SPI":0.0,"상":50.0,"중":40.0,"하":30.0},"ext":{"SPI":0.0,"상":4.8,"중":4.0,"하":3.2},"guide":"1) Draft only; the design is performed by an HEC engineer\n2) Difficulty criteria\n - High : The drawing is not in the ITB, the concept must be established, and the Project standard difficulty is 'High'\n - Medium : The drawing is not in the ITB, the concept must be established, and the Project standard difficulty is 'Medium' / 'Low'\n - Low : The drawing is included in the ITB but needs substantial upgrading"},"instrumentcableroutinglayout":{"activity":"Instrument Cable Routing layout","unit":"A1","int":{"SPI":0.0,"상":5.0,"중":4.0,"하":3.0},"ext":{"SPI":0.0,"상":42.0,"중":35.0,"하":28.0},"guide":"1) Shows JB and LCP locations\n2) Shows cable tray routes and typical tray sections\n3) Shows cable trench and ductbank routes and typical trench / ductbank sections\n4) Difficulty follows the Project standard difficulty"},"instrumentcabletraytrenchductbanklayout":{"activity":"Instrument Cable Tray, Trench, Ductbank Layout","unit":"A3","int":{"SPI":0.0,"상":3.0,"중":2.5,"하":2.0},"ext":{"SPI":0.0,"상":18.0,"중":15.0,"하":12.0},"guide":"1) Shows tray size, routing, layer and main support\n2) Shows trench detail, size and routing\n3) Shows duct bank size and location\n4) Difficulty follows the Project standard difficulty"},"jbwiringlayoutsketcheddrawing":{"activity":"JB & Wiring Layout (Sketched Drawing)","unit":"A3","int":{"SPI":0.0,"상":3.0,"중":2.5,"하":2.0},"ext":{"SPI":0.0,"상":18.0,"중":15.0,"하":12.0},"guide":"1) Shows multi-cable and tray routing\n2) Shows instrument, JB (incl. package JB), LCP and LCS locations\n3) Difficulty follows the Project standard difficulty"},"controlroompibequipmentarrangementlayout":{"activity":"Control Room / PIB Equipment Arrangement layout","unit":"A3","int":{"SPI":0.0,"상":5.0,"중":4.0,"하":3.0},"ext":{"SPI":0.0,"상":36.0,"중":30.0,"하":24.0},"guide":"1) States cabinet type, size and scope (package, electrical, etc.)\n2) Difficulty criteria\n - High : The drawing is not in the ITB, must be prepared, and the Project standard difficulty is 'High'\n - Medium : The drawing is not in the ITB, must be prepared, and the Project standard difficulty is 'Medium' / 'Low'\n - Low : The drawing is included in the ITB"},"instrumentindexandiolist":{"activity":"Instrument Index and I/O List","unit":"Ea","int":{"SPI":0.5,"상":0.36,"중":0.3,"하":0.24},"ext":{"SPI":0.3,"상":0.18,"중":0.15,"하":0.12},"guide":"1) Tag no., Inst. type, P&ID no.\n2) Piping class, line size, location, system, I/O type, etc.\n3) Difficulty follows the Project standard difficulty; use 'SPI' when SPI input is used"},"instrumentcableschedule":{"activity":"Instrument Cable Schedule","unit":"Ea","int":{"SPI":0.0,"상":0.06,"중":0.05,"하":0.04},"ext":{"SPI":0.0,"상":0.12,"중":0.1,"하":0.08},"guide":"1) Cable no., from/to, cable code\n2) Cable gland spec. & q'ty\n3) Multi-cable length taken from the JB & wiring layout\n4) Difficulty follows the Project standard difficulty"},"typicalhookupdrawings":{"activity":"Typical Hook-up drawings","unit":"A3","int":{"SPI":0.0,"상":0.36,"중":0.3,"하":0.24},"ext":{"SPI":0.0,"상":3.6,"중":3.0,"하":2.6},"guide":"1) A type-assignment index per tag (Excel) must be prepared\n2) Difficulty follows the Project standard difficulty"},"instrumenttypicalinstallationdetails":{"activity":"Instrument Typical Installation Details","unit":"A3","int":{"SPI":0.0,"상":0.24,"중":0.2,"하":0.16},"ext":{"SPI":0.0,"상":2.4,"중":2.0,"하":1.6},"guide":"1) A type-assignment index per tag (Excel) must be prepared\n2) Difficulty follows the Project standard difficulty"},"3rdpartysysteminterfacedesigncableblockdiagram":{"activity":"3'rd Party System Interface Design & Cable Block Diagram","unit":"","int":{"SPI":0.0,"상":0.0,"중":0.0,"하":0.0},"ext":{"SPI":0.0,"상":0.0,"중":0.0,"하":0.0},"guide":""},"major3rdpartysysteminterface":{"activity":"- Major 3rd Party System Interface","unit":"Set","int":{"SPI":0.0,"상":0.0,"중":5.0,"하":0.0},"ext":{"SPI":0.0,"상":0.0,"중":5.0,"하":0.0},"guide":"1) Informs for skid JB, LCP, LCS and loose instruments\n2) Cable informs for HEC-scope cables\n3) Review of vendor data and reference project documents"},"minor3rdpartysysteminterface":{"activity":"- Minor 3rd Party System Interface","unit":"Set","int":{"SPI":0.0,"상":0.0,"중":2.0,"하":0.0},"ext":{"SPI":0.0,"상":0.0,"중":2.0,"하":0.0},"guide":""},"bmtakeoffboq작성":{"activity":"BM Take-off & BOQ Preparation","unit":"Lot","int":{"SPI":0.0,"상":0.0,"중":0.0,"하":0.0},"ext":{"SPI":0.0,"상":0.0,"중":0.0,"하":0.0},"guide":"1) Take-off up to the 3rd MTO issue\n2) Cables are taken off after the cable schedule is prepared\n3) Ladder tray & fittings are taken off from the actual drawings\n4) Perforated tray is taken off after the cable route sketch is prepared\n5) Cable glands are taken off from the cable schedule\n6) JB, air pipe & fittings are taken off after the BM sketch is prepared\n7) Tubing, hook-up valves, fittings, gaskets & bolts are taken off using the hook-up quantity table (Excel)"},"타부서inform용자료작성":{"activity":"Data Preparation for Inform to Other Depts.","unit":"Lot","int":{"SPI":0.0,"상":120.0,"중":100.0,"하":80.0},"ext":{"SPI":0.0,"상":200.0,"중":190.0,"하":180.0},"guide":"1) Cable tray & duct loading data\n2) Cable trench, ductbank & foundation data\n3) Electrical load list\n4) Heat dissipation data\n5) Heat tracing instrument list (ET, ST, CT)\n6) Field grounding inform\n7) Difficulty follows the Project standard difficulty"},"3dmodeling":{"activity":"3D Modeling","unit":"Lot","int":{"SPI":0.0,"상":40.0,"중":30.0,"하":20.0},"ext":{"SPI":0.0,"상":300.0,"중":250.0,"하":200.0},"guide":"1) Difficulty follows the volume of the modeling & review scope"},"spiseeddb":{"activity":"SPI SEED DB","unit":"Lot","int":{"SPI":0.0,"상":100.0,"중":80.0,"하":60.0},"ext":{"SPI":0.0,"상":0.0,"중":0.0,"하":0.0},"guide":"1) Difficulty follows the Project standard difficulty"},"coldeyereview":{"activity":"Cold Eye Review","unit":"Lot","int":{"SPI":0.0,"상":30.0,"중":20.0,"하":15.0},"ext":{"SPI":0.0,"상":0.0,"중":0.0,"하":0.0},"guide":"1) Difficulty follows the Project standard difficulty"}},"tel":{"meetingcoordination":{"activity":"Meeting & Coordination","unit":"Lot","int":{"상":0.0,"중":60.0,"하":30.0},"ext":{"상":0.0,"중":0.0,"하":0.0},"guide":"1) Difficulty criteria\n - Medium : The ITB is unclear and many items need clarification\n - Low : The ITB documentation is sufficient"},"reviewinterfacework":{"activity":"Review & Interface work.","unit":"Lot","int":{"상":0.0,"중":30.0,"하":15.0},"ext":{"상":0.0,"중":0.0,"하":0.0},"guide":""},"technicalclarification":{"activity":"Technical Clarification","unit":"Lot","int":{"상":0.0,"중":30.0,"하":15.0},"ext":{"상":0.0,"중":0.0,"하":0.0},"guide":""},"telecomsecurityspecification":{"activity":"Telecom.&Security Specification","unit":"Set","int":{"상":0.0,"중":15.0,"하":10.0},"ext":{"상":0.0,"중":0.0,"하":0.0},"guide":"1) Difficulty criteria\n - Medium : New Generation\n - Low : HEC Standard Specification applied."},"telecomsecuritysystem":{"activity":"Telecom.&Security System","unit":"Set","int":{"상":0.0,"중":30.0,"하":0.0},"ext":{"상":0.0,"중":0.0,"하":0.0},"guide":""},"telecomsecuritybulkmaterial":{"activity":"Telecom.&Security Bulk Material","unit":"Set","int":{"상":0.0,"중":10.0,"하":0.0},"ext":{"상":0.0,"중":0.0,"하":0.0},"guide":""},"telecomsecurityblockdiagram":{"activity":"Telecom.&Security Block Diagram","unit":"Set","int":{"상":0.0,"중":15.0,"하":10.0},"ext":{"상":0.0,"중":5.0,"하":5.0},"guide":"1) Draft only; the design is performed by an HEC engineer\n2) Difficulty criteria\n - Medium : The drawing is not in the ITB, so the concept must be established\n - Low : The drawing is included in the ITB but needs substantial upgrading"},"telecomsecuritycableroutinglayout":{"activity":"Telecom.&Security Cable Routing layout","unit":"A1","int":{"상":0.0,"중":4.0,"하":0.0},"ext":{"상":0.0,"중":20.0,"하":0.0},"guide":"1) Shows JB, LCP and equipment locations\n2) Shows cable tray routes and typical tray sections\n3) Shows cable trench and ductbank routes and typical trench / ductbank sections\n4) Difficulty is uniformly \"Medium\""},"telecomsecuritycabletraytrenchductbanklayout":{"activity":"Telecom.&Security Cable Tray, Trench, Ductbank Layout","unit":"A3","int":{"상":3.0,"중":2.5,"하":0.0},"ext":{"상":15.0,"중":10.0,"하":0.0},"guide":"1) Shows tray size, routing, layer and main support\n2) Shows trench detail, size and routing\n3) Shows duct bank size and location\n4) Difficulty is \"Medium\" (\"High\" for Saudi, Kuwait and UAE projects)"},"telecomsecuritycableschedule":{"activity":"Telecom.&Security Cable Schedule","unit":"Ea","int":{"상":0.0,"중":0.05,"하":0.0},"ext":{"상":0.0,"중":0.1,"하":0.0},"guide":"1) Cable no., from/to, cable code\n2) Cable gland spec. & q'ty\n3) Difficulty is uniformly \"Medium\""},"telecomsecuritytypicalinstallationdetails":{"activity":"Telecom.&Security Typical Installation Details","unit":"A3","int":{"상":0.0,"중":0.2,"하":0.0},"ext":{"상":0.0,"중":2.0,"하":0.0},"guide":"1) A type-assignment index per telecom equipment item (Excel) must be prepared\n2) Difficulty is uniformly \"Medium\""},"bmtakeoffboq작성":{"activity":"BM TAKE-OFF & BOQ PREPARATION","unit":"Lot","int":{"상":0.0,"중":0.0,"하":0.0},"ext":{"상":0.0,"중":0.0,"하":0.0},"guide":"1) Take-off up to the 3rd MTO issue\n2) Cables are taken off after the cable schedule is prepared\n3) Cable tray & fittings are taken off from the actual drawings and the cable route sketch\n4) Cable glands are taken off from the cable schedule\n5) Material per telecom equipment item is taken off from the BM sketch"},"타부서inform용자료작성":{"activity":"Data Preparation for INFORM to Other Depts.","unit":"Lot","int":{"상":0.0,"중":50.0,"하":0.0},"ext":{"상":0.0,"중":100.0,"하":0.0},"guide":"1) Cable tray & duct loading data\n2) Cable trench, ductbank & foundation data\n3) Electrical load list\n4) Heat dissipation data\n5) Field grounding inform\n6) Difficulty is uniformly \"Medium\""},"coldeyereview":{"activity":"COLD EYE REVIEW","unit":"Lot","int":{"상":0.0,"중":10.0,"하":0.0},"ext":{"상":0.0,"중":0.0,"하":0.0},"guide":"Based on one day of effort"},"3dmodeling":{"activity":"3D Modeling","unit":"Lot","int":{"상":0.0,"중":10.0,"하":0.0},"ext":{"상":0.0,"중":60.0,"하":0.0},"guide":""},"studycalculation":{"activity":"Study & Calculation","unit":"Set","int":{"상":0.0,"중":20.0,"하":0.0},"ext":{"상":0.0,"중":0.0,"하":0.0},"guide":"1) Internal M/H is allocated case by case, and a 3rd party is engaged when required\n2) Study & calculation items\n - Wireless Coverage Study\n - Radio Coverage Study\n - CCTV Coverage Study\n - Sound Coverage Study & Review\n - Link Budget Calculation"},"telecomtieinlist":{"activity":"Telecom. Tie-in List","unit":"Lot","int":{"상":0.0,"중":20.0,"하":0.0},"ext":{"상":0.0,"중":0.0,"하":0.0},"guide":""}}}};
+
+var HYUNDAI_LOGO_B64 = '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';
+</script>
+<!-- ===== END GENERATED DATA ===== -->
+
+<script>
+/* FEED M/H Calculator - calculation model
+ * A direct port of the Model class in FEED_MH_Calculator_V0_4_OPExcelGrid.py.
+ * Python's rounding rules (banker's rounding) are reproduced as well, so the
+ * figures shown here are identical to the desktop program's. */
+(function (global) {
+  'use strict';
+
+  var P = { ci: 'C&I (Instrumentation)', tel: 'TEL (Telecom)', both: 'All' };
+  var REV = { 'All': 'both', 'C&I (Instrumentation)': 'ci', 'TEL (Telecom)': 'tel' };
+  /* Compact form for the Part column, which repeats on every table row. */
+  var P_SHORT = { ci: 'C&I', tel: 'TEL', both: 'All' };
+
+  /* Difficulty grades are kept in Korean inside the data because they are the
+   * lookup keys of every std entry's int/ext maps, shared with the desktop
+   * program's saved-state file. They are translated only for display. */
+  var DIFF_LABEL = {
+    '상': 'High', '중': 'Medium', '하': 'Low',
+    'SPI': 'SPI', 'SPI-내부': 'SPI-Internal', 'SPI-외부': 'SPI-External',
+    '외주-종합': 'Outsourcing-Comprehensive', '외주-단종': 'Outsourcing-Single'
+  };
+
+  /* 'SPI-외부 / 외주-종합' -> 'SPI-External / Outsourcing-Comprehensive' */
+  function diffLabel(v) {
+    if (v === null || v === undefined || v === '') return '';
+    return String(v).split(' / ').map(function (part) {
+      var t = part.trim();
+      return DIFF_LABEL[t] || t;
+    }).join(' / ');
+  }
+
+  function num(v) {
+    if (v === null || v === undefined || v === '' || v === '-') return 0.0;
+    var n = parseFloat(String(v).replace(/,/g, ''));
+    return isNaN(n) ? 0.0 : n;
+  }
+
+  /* Python's round()/format() break ties to even, but only on an exact .5.
+   * A double x is exactly .5 at nd decimals iff x * 2^(nd+1) is an odd integer,
+   * and multiplying by a power of two is error-free, so this test is exact.
+   * Otherwise toFixed() rounds the true binary value correctly, matching Python. */
+  function isTie(v, nd) {
+    var t = v * Math.pow(2, nd + 1);
+    return isFinite(t) && Number.isInteger(t) && Math.abs(t % 2) === 1;
+  }
+
+  // Fixed-point string with nd decimals, rounded the way Python's format() does
+  function toFixedPy(x, nd) {
+    if (!isFinite(x)) return String(x);
+    var neg = x < 0;
+    var v = Math.abs(x);
+    var s;
+    if (isTie(v, nd)) {
+      var f = Math.pow(10, nd);
+      var fl = Math.floor(v * f);
+      var n = (fl % 2 === 0) ? fl : fl + 1;
+      s = String(n);
+      if (nd > 0) {
+        while (s.length <= nd) s = '0' + s;
+        s = s.slice(0, s.length - nd) + '.' + s.slice(s.length - nd);
+      }
+    } else {
+      s = v.toFixed(nd);
+    }
+    return (neg && parseFloat(s) !== 0 ? '-' : '') + s;
+  }
+
+  // Equivalent to Python's round(x, nd)
+  function pyRound(x, nd) {
+    nd = nd || 0;
+    if (!isFinite(x)) return x;
+    return parseFloat(toFixedPy(x, nd));
+  }
+
+  function group(s) {
+    var neg = s.charAt(0) === '-';
+    if (neg) s = s.slice(1);
+    var parts = s.split('.');
+    parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    return (neg ? '-' : '') + parts.join('.');
+  }
+
+  function money(v, d) {
+    d = d === undefined ? 0 : d;
+    var n = parseFloat(v);
+    if (v === null || v === undefined || v === '' || isNaN(n)) {
+      return String(v === null || v === undefined ? '' : v);
+    }
+    return group(toFixedPy(n, d));
+  }
+
+  function fmt(v) { return money(v, 0); }
+  function f1(v) { return money(v, 1); }
+
+  function clone(o) { return JSON.parse(JSON.stringify(o)); }
+
+  function Model() {
+    this.inputs = clone(DATA.inputs);
+    this.outputs = clone(DATA.outputs);
+    this.std = clone(DATA.std);
+    this.part = 'both';
+    this.case_ = 'short';
+    this.ratio_mode = 'original';
+    this.external_min = 'No';
+    this.project = '';
+    this.base_mh = 161;
+    this.months = 4;
+    this.rate_short = 32000;
+    this.rate_comp = 39000;
+    this.internal_pct = 0;
+    this.external_pct = 0;
+    this.sync_common();
+    this.recalc();
+  }
+
+  Model.prototype.find = function (p, c) {
+    for (var i = 0; i < this.inputs.length; i++) {
+      if (this.inputs[i].part === p && this.inputs[i].code === c) return this.inputs[i];
+    }
+    return null;
+  };
+  Model.prototype.val = function (p, c) {
+    var x = this.find(p, c);
+    return x ? (x.value === undefined ? '' : x.value) : '';
+  };
+  Model.prototype.setv = function (p, c, v) {
+    var x = this.find(p, c);
+    if (x) x.value = v;
+  };
+  Model.prototype.nval = function (p, c) { return num(this.val(p, c)); };
+
+  Model.prototype.sync_common = function () {
+    var self = this;
+    ['ci', 'tel'].forEach(function (p) {
+      self.setv(p, 'CTRL_PROJECT', self.project);
+      self.setv(p, 'CTRL_EXTERNAL_MIN', self.external_min);
+    });
+    [['ci', 'C35_VALUE', this.base_mh], ['tel', 'C09_VALUE', this.base_mh],
+     ['ci', 'C36_VALUE', this.months], ['tel', 'C10_VALUE', this.months],
+     ['ci', 'C37_VALUE', this.rate_short], ['tel', 'C11_VALUE', this.rate_short],
+     ['ci', 'C38_VALUE', this.rate_comp], ['tel', 'C12_VALUE', this.rate_comp]
+    ].forEach(function (t) { self.setv(t[0], t[1], t[2]); });
+  };
+
+  Model.prototype.input_changed = function (x, v) {
+    x.value = v;
+    var c = x.code;
+    if (c === 'CTRL_PROJECT') {
+      this.project = v;
+    } else if (c === 'CTRL_EXTERNAL_MIN') {
+      this.external_min = v;
+      if (v === 'Yes') { this.ratio_mode = 'custom'; this.internal_pct = 75; this.external_pct = 25; }
+      else { this.ratio_mode = 'original'; }
+    } else if (c === 'C35_VALUE' || c === 'C09_VALUE') { this.base_mh = num(v); }
+    else if (c === 'C36_VALUE' || c === 'C10_VALUE') { this.months = num(v); }
+    else if (c === 'C37_VALUE' || c === 'C11_VALUE') { this.rate_short = num(v); }
+    else if (c === 'C38_VALUE' || c === 'C12_VALUE') { this.rate_comp = num(v); }
+    this.sync_common();
+    this.recalc();
+  };
+
+  /* Difficulty grades stay in Korean here on purpose - they are the keys of the
+   * std int/ext tables (see DIFF_LABEL above). diffLabel() renders them. */
+  Model.prototype.compute_diffs = function () {
+    var self = this;
+    var gp = this.val('ci', 'C01_SEL');
+    var gd = gp === '1)' ? '상' : gp === '2)' ? '중' : gp === '3)' ? '하' : '중';
+    this.setv('ci', 'C01_DIFF', gd);
+    ['C04', 'C06', 'C08', 'C10', 'C12'].forEach(function (c) {
+      var s = self.val('ci', c + '_SEL');
+      self.setv('ci', c + '_DIFF', (s === '1)' && gd === '상') ? '상' : s === '1)' ? '중' : s === '2)' ? '하' : '중');
+    });
+    ['C14', 'C23'].forEach(function (code) {
+      var s = self.val('ci', code + '_SEL');
+      self.setv('ci', code + '_DIFF', s === '1)' ? 'SPI-내부' : s === '2)' ? 'SPI-외부' : gd);
+    });
+    ['C17', 'C18', 'C26', 'C27', 'C28', 'C32'].forEach(function (c) { self.setv('ci', c + '_DIFF', gd); });
+    ['C19', 'C21'].forEach(function (c) {
+      var s = self.val('ci', c + '_SEL');
+      self.setv('ci', c + '_DIFF', (s === '1)' && gd === '상') ? '상' : s === '1)' ? '중' : s === '2)' ? '하' : '중');
+    });
+    var m = this.val('ci', 'C29_SEL');
+    this.setv('ci', 'C29_DIFF', m === '1)' ? '상' : m === '2)' ? '중' : m === '3)' ? '하' : '중');
+    this.setv('tel', 'C01_DIFF', this.val('tel', 'C01_SEL') === '1)' ? '중' : this.val('tel', 'C01_SEL') === '2)' ? '하' : '중');
+    this.setv('tel', 'C03_DIFF', this.val('tel', 'C03_SEL') === '1)' ? '중' : this.val('tel', 'C03_SEL') === '2)' ? '하' : '중');
+    this.setv('tel', 'C05_DIFF', this.val('tel', 'C05_SEL') === '1)' ? '상' : '중');
+  };
+
+  Model.prototype.update_qty = function () {
+    var self = this;
+    var ci1 = this.nval('ci', 'A01_QTY'), ci2 = this.nval('ci', 'A02_QTY'), ci3 = this.nval('ci', 'A03_QTY');
+    var inline = ci3 > 0 ? ci3 : ci2 * 0.25;
+    this.setv('ci', 'A15_QTY', pyRound(inline));
+    this.setv('ci', 'A16_QTY', Math.max(0, pyRound(ci2 - inline)));
+    ['A22', 'A23', 'A24'].forEach(function (c) { self.setv('ci', c + '_QTY', ci1 ? Math.ceil(ci1 / 500) : 0); });
+    this.setv('ci', 'A26_QTY', ci2);
+    this.setv('ci', 'A27_QTY', pyRound(ci2 / 5));
+    this.setv('ci', 'A28_QTY', Math.min(100, ci2 ? Math.ceil(ci2 / 80) : 0));
+    var sys = this.nval('tel', 'A01_QTY'), site = this.nval('tel', 'A02_QTY'), bld = this.nval('tel', 'A03_QTY');
+    this.setv('tel', 'A09_QTY', sys);
+    this.setv('tel', 'A10_QTY', sys);
+    this.setv('tel', 'A11_QTY', pyRound(site / 90000 * 2 + bld, 2));
+    this.setv('tel', 'A12_QTY', pyRound(site / 90000 + bld / 2, 2));
+    this.setv('tel', 'A13_QTY', pyRound(site / 10000, 2));
+    this.setv('tel', 'A14_QTY', sys);
+    this.outputs.forEach(function (o) { o.qty = self.nval(o.part, o.code + '_QTY'); });
+  };
+
+  Model.prototype.diff = function (o) {
+    var p = o.part, c = o.code;
+    if (p === 'ci') {
+      if (['A04', 'A05', 'A06'].indexOf(c) >= 0) return this.val('ci', 'C01_DIFF');
+      var mp = { A07: 'C04', A08: 'C06', A09: 'C08', A10: 'C10', A11: 'C12', A15: 'C14', A16: 'C17', A21: 'C19', A25: 'C21', A26: 'C23', A34: 'C29' };
+      if (mp[c]) return this.val('ci', mp[c] + '_DIFF');
+      if (['A17', 'A18', 'A19', 'A20'].indexOf(c) >= 0) return this.val('ci', 'C18_DIFF');
+      if (['A22', 'A23', 'A24', 'A27', 'A28', 'A29', 'A30', 'A31'].indexOf(c) >= 0) return this.val('ci', 'C26_DIFF');
+      if (['A32', 'A33'].indexOf(c) >= 0) return this.val('ci', 'C27_DIFF');
+      if (['A35', 'A36'].indexOf(c) >= 0) return this.val('ci', 'C32_DIFF');
+      return this.val('ci', 'C01_DIFF');
+    }
+    if (['A04', 'A05', 'A06'].indexOf(c) >= 0) return this.val('tel', 'C01_DIFF');
+    if (['A09', 'A10'].indexOf(c) >= 0) return this.val('tel', 'C03_DIFF');
+    if (c === 'A12') return this.val('tel', 'C05_DIFF');
+    return '중';
+  };
+
+  Model.prototype.units = function (o) {
+    var d = this.diff(o) || '중';
+    var st = o.std;
+    if (st) {
+      var lk = d.indexOf('SPI') >= 0 ? 'SPI' : d;
+      var iu = (st.int && st.int[lk]) || 0;
+      var eu = (st.ext && st.ext[lk]) || 0;
+      if (iu || eu) return { iu: iu, eu: eu, d: d };
+    }
+    return { iu: o.baseIntUnit || 0, eu: o.baseExtUnit || 0, d: d };
+  };
+
+  Model.prototype.visible_outputs = function () {
+    var self = this;
+    if (this.part === 'both') return this.outputs;
+    return this.outputs.filter(function (o) { return o.part === self.part; });
+  };
+
+  Model.prototype.raw_row = function (o) {
+    var u = this.units(o);
+    var q = num(o.qty);
+    return {
+      part: o.part, code: o.code, activity: o.activity, unit: o.unit, qty: q,
+      diff: u.d, iu: u.iu, eu: u.eu,
+      hec: u.iu * q, ext: u.eu * q, total: (u.iu + u.eu) * q
+    };
+  };
+
+  Model.prototype.raw_sum = function () {
+    var h = 0, e = 0, self = this;
+    this.visible_outputs().forEach(function (o) {
+      var r = self.raw_row(o); h += r.hec; e += r.ext;
+    });
+    return { hec: h, ext: e, total: h + e };
+  };
+
+  Model.prototype.pct = function () {
+    if (this.ratio_mode === 'original') {
+      var s = this.raw_sum();
+      var ip = s.total ? s.hec / s.total * 100 : 0;
+      return { ip: ip, ep: 100 - ip };
+    }
+    return { ip: this.internal_pct, ep: this.external_pct };
+  };
+
+  Model.prototype.row = function (o) {
+    var r = this.raw_row(o);
+    // Outsourcing Minimization / user-entered ratio wins: split Total M/H by the ratio
+    if (this.ratio_mode === 'custom') {
+      var p = this.pct();
+      r.hec = r.total * p.ip / 100;
+      r.ext = r.total * p.ep / 100;
+      return r;
+    }
+    // Outsourcing-Comprehensive case: mirrors the Case3 logic of the original Excel OP1.
+    // Case3 Internal Unit = internal Unit * (1 - GEC/Internal ratio - comprehensive-conversion ratio)
+    // Case3 External Unit = external Unit * (1 - outsourcing-reduction ratio)
+    //                       + internal Unit * comprehensive-conversion ratio / allocation divisor
+    // GEC Unit = internal Unit * GEC/Internal ratio / allocation divisor
+    // There is no separate GEC column on screen, so GEC M/H is folded into the
+    // external / comprehensive share to keep the Total right.
+    if (this.case_ === 'comp') {
+      var q = r.qty, iu = r.iu, eu = r.eu;
+      var gec_ratio, comp_ratio, ext_reduce, denom;
+      if (r.part === 'ci') { gec_ratio = 0.30; comp_ratio = 0.10; ext_reduce = 0.0; denom = 0.70; }
+      else { gec_ratio = 0.00; comp_ratio = 0.10; ext_reduce = 0.0; denom = 0.70; }
+      var internal_unit = iu * (1 - gec_ratio - comp_ratio);
+      var gec_unit = denom ? iu * gec_ratio / denom : 0;
+      var comp_external_unit = denom ? eu * (1 - ext_reduce) + iu * comp_ratio / denom : eu;
+      r.iu = internal_unit;
+      r.eu = gec_unit + comp_external_unit;
+      r.hec = pyRound(internal_unit * q);
+      r.ext = pyRound((gec_unit + comp_external_unit) * q);
+      r.total = r.hec + r.ext;
+      r.diff = String(r.diff === undefined ? '' : r.diff) + ' / 외주-종합';
+    }
+    return r;
+  };
+
+  Model.prototype.summary = function () {
+    var h = 0, e = 0, t = 0, self = this;
+    this.visible_outputs().forEach(function (o) {
+      var r = self.row(o); h += r.hec; e += r.ext; t += r.total;
+    });
+    return { hec: h, ext: e, total: t };
+  };
+
+  Model.prototype.recalc = function () {
+    this.compute_diffs();
+    this.update_qty();
+    if (this.ratio_mode === 'original') {
+      var s = this.raw_sum();
+      this.internal_pct = s.total ? s.hec / s.total * 100 : 0;
+      this.external_pct = 100 - this.internal_pct;
+    }
+  };
+
+  /* Run fn with the Part filter temporarily switched, then restore it. */
+  Model.prototype.withPart = function (part, fn) {
+    var old = this.part;
+    this.part = part;
+    try { return fn(); } finally { this.part = old; }
+  };
+
+  Model.prototype.withCase = function (c, fn) {
+    var old = this.case_;
+    this.case_ = c;
+    try { return fn(); } finally { this.case_ = old; }
+  };
+
+  /* M/H totals, M/M and average manpower for the given Part */
+  Model.prototype.partTotals = function (part) {
+    var self = this;
+    return this.withPart(part, function () {
+      var rows = self.visible_outputs().map(function (o) { return self.row(o); });
+      var h = 0, e = 0, t = 0;
+      rows.forEach(function (r) { h += r.hec; e += r.ext; t += r.total; });
+      var mm = self.base_mh ? t / self.base_mh : 0;
+      var avg = self.months ? mm / self.months : 0;
+      return { rows: rows, internal: h, external: e, total: t, mm: mm, avg: avg };
+    });
+  };
+
+  global.MH = {
+    P: P, P_SHORT: P_SHORT, REV: REV, num: num, fmt: fmt, f1: f1, money: money, pyRound: pyRound,
+    toFixedPy: toFixedPy, DIFF_LABEL: DIFF_LABEL, diffLabel: diffLabel, Model: Model
+  };
+})(window);
+</script>
+
+<script>
+/* FEED M/H Calculator - Word report generation
+ * Builds the same structure as create_word_report() in report_utils.py - cover,
+ * Executive Summary, cost estimate, charts, Activity detail, calculation
+ * standards and review comments - as HTML, downloaded as a .doc file.
+ * Word opens the HTML document directly, so no library is needed. */
+(function (global) {
+  'use strict';
+
+  var HYUNDAI_BLUE = '#004EA2';
+  var DARK_BLUE = '#17365D';
+
+  function fmt(v, d) { return MH.money(v, d || 0); }
+  function nnum(v) { return MH.num(v); }
+  function pct(a, b) { a = nnum(a); b = nnum(b); return b ? a / b * 100 : 0; }
+
+  function esc(s) {
+    return String(s === null || s === undefined ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  var TD = 'border:1px solid #9AA7B4;padding:4px 6px;font-size:9pt;';
+  var TH = TD + 'background:' + DARK_BLUE + ';color:#FFFFFF;font-weight:bold;text-align:center;';
+
+  function table(headers, rows, aligns, widths) {
+    var h = '<table cellspacing="0" cellpadding="0" style="border-collapse:collapse;width:100%;margin-bottom:10px;">';
+    h += '<tr>' + headers.map(function (t, i) {
+      return '<th style="' + TH + (widths && widths[i] ? 'width:' + widths[i] + ';' : '') + '">' + esc(t) + '</th>';
+    }).join('') + '</tr>';
+    rows.forEach(function (r) {
+      h += '<tr>' + r.map(function (c, i) {
+        var a = aligns && aligns[i] ? aligns[i] : 'left';
+        return '<td style="' + TD + 'text-align:' + a + ';">' + esc(c) + '</td>';
+      }).join('') + '</tr>';
+    });
+    return h + '</table>';
+  }
+
+  function noteBox(title, lines, fill) {
+    var h = '<table cellspacing="0" cellpadding="0" style="border-collapse:collapse;width:100%;margin-bottom:12px;">';
+    h += '<tr><td style="border:1px solid #9AA7B4;padding:8px 10px;background:' + (fill || '#EDF4FB') + ';font-size:9pt;">';
+    h += '<b>' + esc(title) + '</b><br>';
+    h += lines.map(function (l) { return '• ' + esc(l); }).join('<br>');
+    return h + '</td></tr></table>';
+  }
+
+  function heading(text, level) {
+    var size = level === 1 ? '15pt' : '12pt';
+    return '<p style="font-size:' + size + ';font-weight:bold;color:' + DARK_BLUE +
+      ';margin:14px 0 6px;">' + esc(text) + '</p>';
+  }
+
+  /* Bars are drawn as table-cell widths so Word renders them reliably. */
+  function bar(label, value, maxValue, color) {
+    var w = maxValue > 0 ? Math.max(1, Math.round(value / maxValue * 100)) : 1;
+    return '<tr>' +
+      '<td style="' + TD + 'width:22%;font-weight:bold;">' + esc(label) + '</td>' +
+      '<td style="' + TD + 'width:58%;padding:2px 4px;">' +
+      '<table cellspacing="0" cellpadding="0" style="border-collapse:collapse;width:100%;"><tr>' +
+      '<td style="width:' + w + '%;background:' + color + ';height:14px;font-size:1pt;">&nbsp;</td>' +
+      '<td style="width:' + (100 - w) + '%;font-size:1pt;">&nbsp;</td></tr></table></td>' +
+      '<td style="' + TD + 'width:20%;text-align:right;">' + fmt(value) + ' M/H</td></tr>';
+  }
+
+  function chartSection(data) {
+    var t = data.total, ci = data.ci, tel = data.tel;
+    var maxAll = Math.max(nnum(t.internal), nnum(t.external), 1);
+    var maxPart = Math.max(nnum(ci.internal), nnum(ci.external), nnum(tel.internal), nnum(tel.external), 1);
+    var h = heading('2. M/H composition charts', 1);
+    h += '<p style="font-size:9pt;font-weight:bold;margin:6px 0 4px;">Internal vs outsourced M/H</p>';
+    h += '<table cellspacing="0" cellpadding="0" style="border-collapse:collapse;width:100%;margin-bottom:10px;">';
+    h += bar('Internal M/H (' + fmt(pct(t.internal, t.total), 1) + '%)', nnum(t.internal), maxAll, HYUNDAI_BLUE);
+    h += bar('Outsourced M/H (' + fmt(pct(t.external, t.total), 1) + '%)', nnum(t.external), maxAll, '#7FB3D5');
+    h += '</table>';
+    h += '<p style="font-size:9pt;font-weight:bold;margin:6px 0 4px;">Internal vs outsourced M/H by discipline</p>';
+    h += '<table cellspacing="0" cellpadding="0" style="border-collapse:collapse;width:100%;margin-bottom:10px;">';
+    h += bar('C&I internal', nnum(ci.internal), maxPart, HYUNDAI_BLUE);
+    h += bar('C&I outsourced', nnum(ci.external), maxPart, '#70AD47');
+    h += bar('Telecom internal', nnum(tel.internal), maxPart, HYUNDAI_BLUE);
+    h += bar('Telecom outsourced', nnum(tel.external), maxPart, '#70AD47');
+    h += '</table>';
+    return h;
+  }
+
+  function buildHtml(data, logoB64) {
+    var total = data.total || {}, ci = data.ci || {}, tel = data.tel || {};
+    var project = data.project || '-';
+    var base = data.base_mh, months = data.months;
+
+    var h = '';
+    h += '<div style="font-family:\'Malgun Gothic\',sans-serif;font-size:9pt;color:#172033;">';
+
+    // Cover / header
+    h += '<table cellspacing="0" cellpadding="0" style="width:100%;border-collapse:collapse;margin-bottom:10px;"><tr>';
+    h += '<td style="width:40%;vertical-align:middle;">';
+    if (logoB64) h += '<img src="data:image/png;base64,' + logoB64 + '" width="150" alt="HYUNDAI ENGINEERING">';
+    else h += '<span style="font-size:14pt;font-weight:bold;color:' + HYUNDAI_BLUE + ';">HYUNDAI ENGINEERING</span>';
+    h += '</td><td style="width:60%;text-align:right;vertical-align:middle;">';
+    h += '<span style="font-size:18pt;font-weight:bold;color:' + DARK_BLUE + ';">FEED M/H Calculation Report</span><br>';
+    h += '<span style="font-size:9pt;">Control &amp; Instrumentation / Telecommunication</span>';
+    h += '</td></tr></table>';
+
+    h += table(['Item', 'Detail', 'Item', 'Detail'], [
+      ['Project', String(project), 'Prepared with', 'FEED M/H Calculator V0.4'],
+      ['Outsourcing Minimization', String(data.external_min || 'No'), 'Base / Duration',
+       fmt(base) + ' M/H per M/M / ' + fmt(months) + ' months'],
+      ['Outsourcing unit rate',
+       'Single ' + fmt(data.rate_short) + ' KRW / Comprehensive ' + fmt(data.rate_comp) + ' KRW',
+       'Reporting scope', 'C&I + Telecom FEED Engineering M/H']
+    ], ['left', 'left', 'left', 'left'], ['14%', '36%', '14%', '36%']);
+
+    // 1. Executive Summary
+    h += heading('1. Executive Summary', 1);
+    h += table(['Item', 'Internal M/H', 'Outsourced M/H', 'Total M/H', 'Total M/M', 'Average manpower'],
+      [['C&I', ci, ci], ['Telecom', tel, tel], ['Total', total, total]].map(function (x) {
+        var o = x[1];
+        return [x[0], fmt(o.internal), fmt(o.external), fmt(o.total), fmt(o.mm, 1), fmt(o.avg, 1)];
+      }), ['left', 'right', 'right', 'right', 'right', 'right']);
+
+    h += table(['Cost item', 'Basis', 'Estimated cost', 'Remarks'], [
+      ['Outsourcing-Single estimate',
+       'Outsourced M/H ' + fmt(total.external) + ' × unit rate ' + fmt(data.rate_short),
+       fmt(data.short_cost) + ' KRW', 'VAT and contract terms reviewed separately'],
+      ['Outsourcing-Comprehensive estimate',
+       'Outsourced M/H ' + fmt(total.external) + ' × unit rate ' + fmt(data.rate_comp),
+       fmt(data.comp_cost) + ' KRW', 'VAT and contract terms reviewed separately']
+    ], ['left', 'left', 'right', 'left']);
+
+    var totalMh = nnum(total.total);
+    var bigger = nnum(ci.total) >= nnum(tel.total) ? 'C&I' : 'Telecom';
+    h += noteBox('Key analysis', [
+      'Total calculated effort is ' + fmt(totalMh) + ' M/H, split ' + fmt(pct(total.internal, totalMh), 1) +
+        '% internal and ' + fmt(pct(total.external, totalMh), 1) + '% outsourced.',
+      bigger + ' carries the larger share; the supporting detail is set out in the per-activity tables.',
+      'Applying Outsourcing Minimization changes the internal/outsourced split, so the outsourcing estimate and the staffing plan should be reviewed together.',
+      'This report covers the main FEED-stage scope: technical document review, data sheets, drawings, MTO/inform and 3D/SPI/CER work.'
+    ]);
+
+    // 2. charts
+    h += chartSection(data);
+
+    // 3. Activity detail
+    h += heading('3. Activity calculation detail by discipline', 1);
+    [['3.1 C&I detail', ci], ['3.2 Telecom detail', tel]].forEach(function (x) {
+      h += heading(x[0], 2);
+      var rows = (x[1].rows || []).slice(0, 45).map(function (r) {
+        return [r.code, r.activity, r.unit, fmt(r.qty, 1), MH.diffLabel(r.diff),
+                fmt(r.hec), fmt(r.ext), fmt(r.total)];
+      });
+      h += table(['Code', 'Activity', 'Unit', 'Qty', 'Difficulty', 'Internal M/H', 'Outsourced M/H', 'Total'], rows,
+        ['center', 'left', 'center', 'right', 'center', 'right', 'right', 'right'],
+        ['7%', '34%', '7%', '8%', '12%', '11%', '11%', '10%']);
+    });
+
+    // 4. calculation standards
+    h += heading('4. Calculation basis and principles', 1);
+    h += noteBox('Calculation basis summary', [
+      'Internal and outsourced Unit M/H are applied per activity, driven by the entered quantities and the selected Project Conditions.',
+      'Difficulty is derived from the Project standard difficulty, the specification / data sheet / drawing conditions and whether SPI is applied.',
+      'M/M is Total M/H divided by Base M/H; average manpower is M/M divided by the design duration.',
+      'The outsourcing estimate is the outsourced M/H multiplied by the outsourcing unit rate, for budget review purposes.'
+    ], '#F8FBFE');
+
+    var std = data.std || {};
+    [['ci', 'Representative C&I calculation standards'],
+     ['tel', 'Representative Telecom calculation standards']].forEach(function (x) {
+      var entries = Object.keys(std[x[0]] || {}).map(function (k) { return std[x[0]][k]; }).slice(0, 18);
+      if (!entries.length) return;
+      h += heading(x[1], 2);
+      var rows = entries.map(function (e) {
+        function pack(o) {
+          var parts = Object.keys(o || {}).filter(function (k) { return nnum(o[k]) !== 0; })
+            .map(function (k) { return MH.diffLabel(k) + ':' + fmt(o[k], 2); });
+          return parts.length ? parts.join('/') : '-';
+        }
+        return [e.activity || '', e.unit || '', pack(e.int), pack(e.ext),
+                String(e.guide || '').slice(0, 420), 'Unit M/H by difficulty'];
+      });
+      h += table(['Activity', 'Unit', 'Internal basis', 'Outsourced basis', 'Guide', 'Remarks'], rows,
+        ['left', 'center', 'left', 'left', 'left', 'left'], ['20%', '6%', '14%', '14%', '34%', '12%']);
+    });
+
+    // 5. review comments
+    h += heading('5. Review comments', 1);
+    h += noteBox('Review and follow-up actions', [
+      'For high-quantity items the reliability of the entered quantity drives the total M/H directly, so final quantities must be confirmed before pricing.',
+      'For heavily outsourced scope, the calculation conditions, outsourcing scope and deliverable level should be defined clearly to reduce variance in the estimate.',
+      'The selected Project Conditions feed the difficulty grades and the calculation basis, so they must agree with the ITB and the client requirement review.',
+      'This report is for FEED-stage M/H review; the calculation standards and quantities must be revisited on conversion to EPC or at the start of detailed design.'
+    ], '#FFF8E6');
+
+    h += '<p style="text-align:center;font-size:8pt;color:#666666;margin-top:18px;">Hyundai Engineering FEED M/H Calculator | Generated Report</p>';
+    h += '</div>';
+    return h;
+  }
+
+  function fullDocument(data, logoB64) {
+    return '<html xmlns:o="urn:schemas-microsoft-com:office:office" ' +
+      'xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">' +
+      '<head><meta charset="utf-8"><title>FEED M/H Calculation Report</title>' +
+      '<style>@page{size:A4;margin:1.4cm;} body{font-family:"Malgun Gothic",sans-serif;}</style>' +
+      '</head><body>' + buildHtml(data, logoB64) + '</body></html>';
+  }
+
+  function download(data, logoB64, filename) {
+    var html = fullDocument(data, logoB64);
+    var blob = new Blob(['﻿', html], { type: 'application/msword;charset=utf-8' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = filename || 'FEED_MH_Report_Hyundai.doc';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 1500);
+  }
+
+  function preview(data, logoB64) {
+    var w = window.open('', '_blank');
+    if (!w) return false;
+    w.document.write(fullDocument(data, logoB64));
+    w.document.close();
+    return true;
+  }
+
+  global.MHReport = { buildHtml: buildHtml, fullDocument: fullDocument, download: download, preview: preview };
+})(window);
+</script>
+
+<script>
+/* FEED M/H Calculator - screen layout and event handling
+ * A web port of the tab structure and rendering of the desktop App class. */
+(function () {
+  'use strict';
+
+  var num = MH.num, fmt = MH.fmt, f1 = MH.f1, money = MH.money;
+  var SHEET_DATE = '2026-08-11';
+  var STORAGE_KEY = 'FEED_MH_Calculator_Last_Input';
+
+  var TABS = [
+    { id: 'tab-input', label: 'Edit Inputs', render: renderInput },
+    { id: 'tab-guide', label: 'Guide / Help', render: renderGuide },
+    { id: 'tab-summary', label: 'Summary', render: renderSummary },
+    { id: 'tab-output-ci', label: 'Output_CI', render: function (el) { renderOutput(el, 'ci'); } },
+    { id: 'tab-output-tel', label: 'Output_TEL', render: function (el) { renderOutput(el, 'tel'); } },
+    { id: 'tab-op1', label: 'OP1', render: function (el) { renderOp(el, 'OP1'); } },
+    { id: 'tab-op2-short', label: 'OP2-Single', render: function (el) { renderOp(el, 'OP2-Single'); } },
+    { id: 'tab-op2-comp', label: 'OP2-Comprehensive', render: function (el) { renderOp(el, 'OP2-Comprehensive'); } },
+    { id: 'tab-std-ci', label: 'Standards_CI', render: function (el) { renderStd(el, 'ci'); } },
+    { id: 'tab-std-tel', label: 'Standards_TEL', render: function (el) { renderStd(el, 'tel'); } }
+  ];
+
+  var m = new MH.Model();
+  var activeTab = 'tab-input';
+  var dirty = {};
+  var suppressRatioSync = false;
+
+  /* ----------------------------------------------------------------- utils */
+  function $(id) { return document.getElementById(id); }
+
+  function esc(s) {
+    return String(s === null || s === undefined ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  var toastTimer = null;
+  function toast(msg) {
+    var t = $('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { t.classList.remove('show'); }, 2600);
+  }
+
+  // Compact label for the Part column of the Input / OP tables
+  function partShort(p) { return MH.P_SHORT[p] || p; }
+
+  /* ------------------------------------------------------- Master Control */
+  function ctlValues() {
+    return {
+      part: $('mc-part').value,
+      case_: $('mc-case').value,
+      ratio: $('mc-ratio').value,
+      external: $('mc-external').value,
+      project: $('mc-project').value,
+      base: $('mc-base').value,
+      months: $('mc-months').value,
+      rate_short: $('mc-rate-short').value,
+      rate_comp: $('mc-rate-comp').value,
+      ip: $('mc-ip').value,
+      ep: $('mc-ep').value
+    };
+  }
+
+  /* Same behaviour as Python's App.apply_left() */
+  function applyLeft() {
+    var v = ctlValues();
+    m.part = MH.REV[v.part] || 'both';
+    m.case_ = v.case_ === 'Outsourcing-Single' ? 'short' : 'comp';
+    m.ratio_mode = v.ratio === 'Original basis' ? 'original' : 'custom';
+    m.external_min = v.external;
+    m.project = v.project;
+    m.base_mh = num(v.base);
+    m.months = num(v.months);
+    m.rate_short = num(v.rate_short);
+    m.rate_comp = num(v.rate_comp);
+    if (m.external_min === 'Yes') m.ratio_mode = 'custom';
+    if (m.ratio_mode === 'custom') {
+      m.internal_pct = num(v.ip);
+      m.external_pct = 100 - m.internal_pct;
+      $('mc-ep').value = f1(m.external_pct);
+    }
+    m.sync_common();
+    m.recalc();
+    refreshAll();
+    saveState(true);
+  }
+
+  /* Same behaviour as Python's App.apply_user_state_to_vars() */
+  function writeControls() {
+    $('mc-part').value = MH.P[m.part] || 'All';
+    $('mc-case').value = m.case_ === 'short' ? 'Outsourcing-Single' : 'Outsourcing-Comprehensive';
+    $('mc-ratio').value = m.ratio_mode === 'original' ? 'Original basis' : 'User entered';
+    $('mc-external').value = m.external_min;
+    $('mc-project').value = String(m.project || '');
+    $('mc-base').value = String(m.base_mh);
+    $('mc-months').value = String(m.months);
+    $('mc-rate-short').value = String(m.rate_short);
+    $('mc-rate-comp').value = String(m.rate_comp);
+    $('mc-ip').value = f1(m.internal_pct);
+    $('mc-ep').value = f1(m.external_pct);
+  }
+
+  /* ------------------------------------------------------- tab render mgmt */
+  function buildTabs() {
+    var bar = $('tabbar');
+    bar.innerHTML = TABS.map(function (t) {
+      return '<button type="button" role="tab" data-tab="' + t.id + '" aria-selected="' +
+        (t.id === activeTab) + '">' + esc(t.label) + '</button>';
+    }).join('');
+    bar.addEventListener('click', function (e) {
+      var b = e.target.closest('button[data-tab]');
+      if (b) selectTab(b.getAttribute('data-tab'));
+    });
+  }
+
+  function selectTab(id) {
+    activeTab = id;
+    Array.prototype.forEach.call($('tabbar').children, function (b) {
+      b.setAttribute('aria-selected', String(b.getAttribute('data-tab') === id));
+    });
+    TABS.forEach(function (t) { $(t.id).classList.toggle('active', t.id === id); });
+    renderIfDirty(id);
+    $('tabpanels').scrollTop = 0;
+  }
+
+  function renderIfDirty(id) {
+    if (!dirty[id]) return;
+    var tab = TABS.filter(function (t) { return t.id === id; })[0];
+    if (!tab) return;
+    tab.render($(id));
+    dirty[id] = false;
+  }
+
+  /* Mark every tab stale, then render only the one currently on screen. */
+  function refreshAll() {
+    m.sync_common();
+    m.recalc();
+    if (m.ratio_mode === 'original') {
+      suppressRatioSync = true;
+      $('mc-ip').value = f1(m.internal_pct);
+      $('mc-ep').value = f1(m.external_pct);
+      suppressRatioSync = false;
+    }
+    TABS.forEach(function (t) { dirty[t.id] = true; });
+    var focusInfo = captureFocus();
+    renderIfDirty(activeTab);
+    restoreFocus(focusInfo);
+  }
+
+  function captureFocus() {
+    var a = document.activeElement;
+    if (!a || !a.id || !$(activeTab).contains(a)) return null;
+    return { id: a.id, start: a.selectionStart, end: a.selectionEnd };
+  }
+
+  function restoreFocus(info) {
+    if (!info) return;
+    var el = $(info.id);
+    if (!el) return;
+    el.focus();
+    try { if (info.start !== null && el.setSelectionRange) el.setSelectionRange(info.start, info.end); } catch (e) { /* number input */ }
+  }
+
+  /* =========================================================== Edit Inputs */
+  /* Display-side fallback so a computed difficulty cell is never blank
+   * (App.fallback_diff). Returns the raw Korean grade used as a lookup key;
+   * MH.diffLabel() turns it into the English label. */
+  function fallbackDiff(part, code) {
+    var val = m.val(part, code);
+    if (val !== null && val !== undefined && val !== '') return val;
+    if (!/_DIFF$/.test(code)) return '';
+    var base = code.replace('_DIFF', '');
+    var s;
+    if (part === 'tel') {
+      if (base === 'C01' || base === 'C03') {
+        s = m.val('tel', base + '_SEL');
+        return s === '1)' ? '중' : s === '2)' ? '하' : '중';
+      }
+      if (base === 'C05') {
+        s = m.val('tel', 'C05_SEL');
+        return s === '1)' ? '상' : '중';
+      }
+      return '중';
+    }
+    var gp = m.val('ci', 'C01_SEL');
+    var gd = gp === '1)' ? '상' : gp === '2)' ? '중' : gp === '3)' ? '하' : '중';
+    if (base === 'C01') return gd;
+    if (['C04', 'C06', 'C08', 'C10', 'C12'].indexOf(base) >= 0) {
+      s = m.val('ci', base + '_SEL');
+      return (s === '1)' && gd === '상') ? '상' : s === '1)' ? '중' : s === '2)' ? '하' : '중';
+    }
+    if (['C14', 'C23'].indexOf(base) >= 0) {
+      s = m.val('ci', base + '_SEL');
+      return s === '1)' ? 'SPI-내부' : s === '2)' ? 'SPI-외부' : gd;
+    }
+    if (['C17', 'C18', 'C26', 'C27', 'C28', 'C32'].indexOf(base) >= 0) return gd;
+    if (['C19', 'C21'].indexOf(base) >= 0) {
+      s = m.val('ci', base + '_SEL');
+      return (s === '1)' && gd === '상') ? '상' : s === '1)' ? '중' : s === '2)' ? '하' : '중';
+    }
+    if (base === 'C29') {
+      s = m.val('ci', 'C29_SEL');
+      return s === '1)' ? '상' : s === '2)' ? '중' : s === '3)' ? '하' : '중';
+    }
+    return gd;
+  }
+
+  function inputKind(x) {
+    if (x.type === 'computed') return 'Auto result';
+    if (x.code === 'CTRL_EXTERNAL_MIN') return 'Master linked';
+    if (x.code.indexOf('CTRL') === 0 || /_QTY$/.test(x.code) || /_VALUE$/.test(x.code)) return 'Required';
+    return 'Optional';
+  }
+
+  var KIND_CLASS = {
+    'Auto result': 'k-auto', 'Master linked': 'k-master',
+    'Required': 'k-req', 'Optional': 'k-opt'
+  };
+
+  function renderInput(el) {
+    var h = '';
+    h += '<div class="legend">' +
+      '<span><span class="sw" style="background:#FFF2CC"></span>Required input</span>' +
+      '<span><span class="sw" style="background:#DDEBF7"></span>Master linked</span>' +
+      '<span><span class="sw" style="background:#E2F0D9"></span>Auto result</span>' +
+      '<span><span class="sw" style="background:#EFE7FF"></span>Optional input</span>' +
+      '<span style="color:#506980">Changing a value recalculates the Summary / Output / OP tabs at once.</span>' +
+      '</div>';
+    h += '<div class="scrollx"><table class="inputs"><thead><tr>' +
+      ['Part', 'Code', 'Type', 'Sub-group', 'Input item', 'Value', 'Unit', 'Note']
+        .map(function (t) { return '<th>' + t + '</th>'; }).join('') +
+      '</tr></thead><tbody>';
+
+    m.inputs.forEach(function (x, idx) {
+      if (x.code === 'CTRL_EXTERNAL_MIN') x.value = m.external_min;
+      if (m.part !== 'both' && x.part !== m.part) return;
+      var kind = inputKind(x);
+      var domId = 'in-' + x.part + '-' + x.code;
+      var editor;
+      if (x.type === 'computed') {
+        var dv = fallbackDiff(x.part, x.code);
+        x.value = dv;   // stored raw so the exported file stays desktop-compatible
+        editor = '<span class="readonly auto">' + esc(MH.diffLabel(dv)) + '</span>';
+      } else if (x.code === 'CTRL_EXTERNAL_MIN') {
+        editor = '<span class="readonly master">' + esc(m.external_min) + '</span>';
+      } else if (x.type === 'select') {
+        editor = '<select class="cell" id="' + domId + '" data-idx="' + idx + '">' +
+          (x.options || []).map(function (o) {
+            return '<option value="' + esc(o.value) + '"' +
+              (String(o.value) === String(x.value) ? ' selected' : '') + '>' + esc(o.text) + '</option>';
+          }).join('') + '</select>';
+      } else {
+        editor = '<input class="cell" type="text" id="' + domId + '" data-idx="' + idx + '"' +
+          (x.type === 'number' ? ' inputmode="decimal"' : '') +
+          ' value="' + esc(x.value) + '">';
+      }
+      var note = x.code === 'CTRL_EXTERNAL_MIN'
+        ? 'Mirrors the value set in Master Control on the left. This row is not editable.'
+        : (x.note || '');
+      h += '<tr>' +
+        '<td class="ctr">' + esc(partShort(x.part)) + '</td>' +
+        '<td class="ctr">' + esc(x.code) + '</td>' +
+        '<td class="kind ' + KIND_CLASS[kind] + '">' + kind + '</td>' +
+        '<td>' + esc(x.middle || '') + '</td>' +
+        '<td class="detail">' + esc(x.detail || '') + '</td>' +
+        '<td>' + editor + '</td>' +
+        '<td class="ctr">' + esc(x.unit || '') + '</td>' +
+        '<td class="note">' + esc(note) + '</td>' +
+        '</tr>';
+    });
+    h += '</tbody></table></div>';
+    el.innerHTML = h;
+
+    el.querySelectorAll('select.cell').forEach(function (sel) {
+      sel.addEventListener('change', function () { updateInput(m.inputs[+sel.dataset.idx], sel.value); });
+    });
+    el.querySelectorAll('input.cell').forEach(function (inp) {
+      inp.addEventListener('change', function () { updateInput(m.inputs[+inp.dataset.idx], inp.value); });
+      inp.addEventListener('keydown', function (e) { if (e.key === 'Enter') inp.blur(); });
+    });
+  }
+
+  function updateInput(rec, value) {
+    if (!rec) return;
+    if (String(rec.value) === String(value)) return;
+    m.input_changed(rec, value);
+    writeControls();
+    refreshAll();
+    saveState(true);
+  }
+
+  /* =============================================================== Summary */
+  function renderSummary(el) {
+    var ci = m.partTotals('ci');
+    var tel = m.partTotals('tel');
+    var all = m.partTotals('both');
+    var p = m.pct();
+    var caseLabel = m.case_ === 'short' ? 'Outsourcing-Single Case' : 'Outsourcing-Comprehensive Case';
+    var rate = m.case_ === 'short' ? m.rate_short : m.rate_comp;
+    var verLabel = m.external_min === 'Yes' ? 'Outsourcing Minimization Ver.' : 'Standard Ver.';
+
+    function mmOf(v) { return m.base_mh ? v / m.base_mh : 0; }
+    function headOf(v) { return (m.base_mh && m.months) ? v / m.base_mh / m.months : 0; }
+
+    var h = '<div class="summary-title">FEED Project M/H Summary (C&amp;I + Telecom)</div>';
+    h += '<div class="summary-head">' +
+      '<span class="chip">PROJECT : ' + esc(m.project || '-') + '</span>' +
+      '<span class="chip' + (m.external_min === 'Yes' ? ' on' : '') + '">Outsourcing Minimization : ' + esc(m.external_min) + '</span>' +
+      '<span class="chip">Internal / External ' + f1(p.ip) + ' / ' + f1(p.ep) + '</span>' +
+      '<span class="chip">' + esc(caseLabel) + ' &middot; unit rate ' + fmt(rate) + ' KRW</span>' +
+      '</div>';
+
+    h += '<table class="summary"><caption>1. M/H Summary</caption>';
+    h += '<tr><th rowspan="2">Item</th><th colspan="4">Grand total</th></tr>';
+    h += '<tr><th>Internal</th><th>Outsourced</th><th>Total</th><th>Est. cost</th></tr>';
+    h += '<tr><td class="lbl">M/H</td><td>' + fmt(all.internal) + '</td><td>' + fmt(all.external) +
+      '</td><td>' + fmt(all.total) + '</td><td>' + fmt(all.external * rate) + '</td></tr>';
+    h += '<tr><td class="lbl">M/M</td><td>' + f1(mmOf(all.internal)) + '</td><td>' + f1(mmOf(all.external)) +
+      '</td><td>' + f1(all.mm) + '</td><td>-</td></tr>';
+    h += '<tr><td class="lbl">Manpower</td><td>' + f1(headOf(all.internal)) + '</td><td>' + f1(headOf(all.external)) +
+      '</td><td>' + f1(all.avg) + '</td><td>-</td></tr>';
+    h += '</table>';
+
+    h += '<table class="summary"><caption>2. M/H breakdown</caption>';
+    h += '<tr><th rowspan="3">Item</th><th colspan="4">C&amp;I Design Part (' + esc(caseLabel) + ')</th>' +
+      '<th colspan="4">Telecom Design Part (' + esc(caseLabel) + ')</th></tr>';
+    h += '<tr><td colspan="4" class="b red">' + verLabel + '</td><td colspan="4" class="b red">' + verLabel + '</td></tr>';
+    h += '<tr>' + ['Internal', 'Outsourced', 'Total', 'Est. cost', 'Internal', 'Outsourced', 'Total', 'Est. cost']
+      .map(function (t) { return '<th>' + t + '</th>'; }).join('') + '</tr>';
+
+    [['M/H', function (o) { return [fmt(o.internal), fmt(o.external), fmt(o.total), fmt(o.external * rate)]; }],
+     ['M/M', function (o) { return [f1(mmOf(o.internal)), f1(mmOf(o.external)), f1(o.mm), '-']; }],
+     ['Manpower', function (o) { return [f1(headOf(o.internal)), f1(headOf(o.external)), f1(o.avg), '-']; }]
+    ].forEach(function (r) {
+      h += '<tr><td class="lbl">' + r[0] + '</td>' +
+        r[1](ci).map(function (v) { return '<td>' + v + '</td>'; }).join('') +
+        r[1](tel).map(function (v) { return '<td>' + v + '</td>'; }).join('') + '</tr>';
+    });
+    h += '</table>';
+
+    h += '<div class="summary-note"><b>Note</b> &nbsp; The summary is recalculated immediately from ' +
+      'Master Control, the values on Edit Inputs and the Unit M/H on the calculation-standards tabs. ' +
+      'The breakdown always shows C&amp;I and Telecom in full, whatever Part is selected.</div>';
+    el.innerHTML = h;
+  }
+
+  /* ============================================== Output_CI / Output_TEL */
+  function renderOutput(el, part) {
+    var t = m.partTotals(part);
+    var rows = t.rows;
+    var title = part === 'ci'
+      ? 'C&I Design - Petrochemical FEED Project M/H Calculation Sheet (Rev.3)'
+      : 'Telecom Design - Petrochemical FEED Project M/H Calculation Sheet (Rev.3)';
+    var ver = m.external_min === 'Yes' ? '[ Outsourcing Minimization Ver. ]' : '[ Standard Ver. ]';
+    var rate = m.case_ === 'short' ? m.rate_short : m.rate_comp;
+    var base = part === 'ci'
+      ? [['Total ICSS (DCS+ESD+F&G)+MMS IO quantity', m.nval('ci', 'A01_QTY'), 'Point'],
+         ['Total Instrument quantity', m.nval('ci', 'A02_QTY'), 'Set']]
+      : [['Telecom System quantity', m.nval('tel', 'A01_QTY'), 'Set'],
+         ['Site Area', m.nval('tel', 'A02_QTY'), 'm2'],
+         ['Building quantity', m.nval('tel', 'A03_QTY'), 'Ea']];
+
+    var h = '<div><span class="sheet-date">' + SHEET_DATE + '</span><div class="sheet-title">' + esc(title) + '</div></div>';
+    h += '<div class="sheet-ver">' + esc(ver) + '</div>';
+    h += '<div style="display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start;">';
+    h += '<div><div class="b" style="margin-bottom:4px;">Base Data Summary</div><table class="basebox">';
+    base.forEach(function (b) {
+      h += '<tr><td class="b">' + esc(b[0]) + '</td><td class="v">' + fmt(b[1]) + '</td><td class="b red">' + esc(b[2]) + '</td></tr>';
+    });
+    h += '</table></div>';
+    h += '<div><div class="b" style="margin-bottom:4px;">Notes</div><div class="notesbox">' +
+      'The Outsourcing Minimization value (No/Yes) set in Master Control applies to the whole Output.<br>' +
+      'The Case (Outsourcing-Single / Outsourcing-Comprehensive) changes how Unit M/H is split between internal and outsourced work.</div></div>';
+    h += '</div>';
+    h += '<div class="projbar"><div class="k">PROJECT:</div><div class="v">' + esc(m.project || '') + '</div></div>';
+    h += '<div class="tablebanner">MAN-HOUR CALCULATION TABLE</div>';
+
+    h += '<div class="scrollx"><table class="sheet" style="width:100%">';
+    h += '<tr>' +
+      '<th class="head-basic" rowspan="2">No.</th>' +
+      '<th class="head-basic" rowspan="2">Activity</th>' +
+      '<th class="head-basic" rowspan="2">Unit</th>' +
+      '<th class="head-basic" rowspan="2">Qty</th>' +
+      '<th class="head-basic" rowspan="2">Difficulty</th>' +
+      '<th colspan="2" style="background:#BFE7F3">Internal M/H</th>' +
+      '<th colspan="2" style="background:#C6EFCE">External M/H</th>' +
+      '<th colspan="2" style="background:#FFF2CC">Total</th></tr>';
+    h += '<tr>' +
+      '<th style="background:#BFE7F3">Unit M/H</th><th style="background:#BFE7F3">M/H</th>' +
+      '<th style="background:#C6EFCE">Unit M/H</th><th style="background:#C6EFCE">M/H</th>' +
+      '<th style="background:#FFF2CC">M/H</th><th style="background:#FFF2CC">Remarks</th></tr>';
+
+    rows.forEach(function (r, i) {
+      h += '<tr class="' + (i % 2 ? 'odd' : '') + '">' +
+        '<td class="ctr">' + (i + 1) + '</td>' +
+        '<td>' + esc(r.activity) + '</td>' +
+        '<td class="ctr">' + esc(r.unit) + '</td>' +
+        '<td class="num">' + f1(r.qty) + '</td>' +
+        '<td class="ctr">' + esc(MH.diffLabel(r.diff)) + '</td>' +
+        '<td class="num">' + f1(r.iu) + '</td>' +
+        '<td class="num">' + fmt(r.hec) + '</td>' +
+        '<td class="num">' + f1(r.eu) + '</td>' +
+        '<td class="num">' + fmt(r.ext) + '</td>' +
+        '<td class="num b">' + fmt(r.total) + '</td>' +
+        '<td></td></tr>';
+    });
+
+    h += '<tr class="total"><td colspan="2">Base M/H (1 M/M)</td><td class="num">' + fmt(m.base_mh) +
+      '</td><td class="ctr">M/H</td><td class="ctr">Total M/H</td><td class="num" colspan="2">' + fmt(t.internal) +
+      '</td><td class="num" colspan="2">' + fmt(t.external) + '</td><td class="num" colspan="2">' + fmt(t.total) + '</td></tr>';
+    h += '<tr class="b"><td colspan="2">Design duration</td><td class="num">' + f1(m.months) +
+      '</td><td class="ctr">months</td><td class="ctr">Total M/M</td><td class="num" colspan="2">' +
+      f1(m.base_mh ? t.internal / m.base_mh : 0) + '</td><td class="num" colspan="2">' +
+      f1(m.base_mh ? t.external / m.base_mh : 0) + '</td><td class="num" colspan="2">' + f1(t.mm) + '</td></tr>';
+    h += '<tr class="b"><td colspan="2">Outsourcing unit rate</td><td class="num">' + fmt(rate) +
+      '</td><td class="ctr">KRW</td><td class="ctr">Average manpower</td><td class="num" colspan="2">' +
+      f1((m.base_mh && m.months) ? t.internal / m.base_mh / m.months : 0) + '</td><td class="num" colspan="2">' +
+      f1((m.base_mh && m.months) ? t.external / m.base_mh / m.months : 0) + '</td><td class="num" colspan="2">' +
+      f1(t.avg) + '</td></tr>';
+    h += '<tr><td colspan="4" class="b" style="background:#FFF2CC">Outsourcing estimated cost</td>' +
+      '<td colspan="7" class="num b red" style="background:#FFF2CC">' + fmt(t.external * rate) + ' KRW</td></tr>';
+    h += '</table></div>';
+    el.innerHTML = h;
+  }
+
+  /* =============================================== OP1 / OP2 Excel sheets */
+  function sectionName(code) {
+    var n = parseInt(String(code).replace('A', ''), 10);
+    if (isNaN(n)) return 'OTHER';
+    if (n <= 6) return '1  GENERAL';
+    if (n <= 11) return '2  SPECIFICATION';
+    if (n <= 14) return '3  CALCULATION';
+    if (n <= 20) return '4  PROCUREMENT / DATA SHEET / MR & TBE';
+    if (n <= 31) return '5  DRAWING / INDEX / INTERFACE';
+    if (n <= 33) return '6  MTO & INFORM TO OTHER DEPTS.';
+    return '7  OTHERS';
+  }
+
+  function rowsForSheet(sheet) {
+    var c = sheet === 'OP2-Single' ? 'short' : sheet === 'OP2-Comprehensive' ? 'comp' : m.case_;
+    return m.withCase(c, function () {
+      return m.visible_outputs().map(function (o) { return m.row(o); });
+    });
+  }
+
+  function renderOp(el, sheet) {
+    var rows = rowsForSheet(sheet);
+    var isOp1 = sheet === 'OP1';
+    var title = m.part === 'ci' ? 'C&I Design - Petrochemical FEED Project M/H Calculation Sheet (Rev.3)'
+      : m.part === 'tel' ? 'Telecom Design - Petrochemical FEED Project M/H Calculation Sheet (Rev.3)'
+        : 'C&I / Telecom FEED Project M/H Calculation Sheet (Rev.3)';
+    var ver = m.external_min === 'Yes' ? '[ Outsourcing Minimization Ver. ]' : '[ Standard Ver. ]';
+
+    var h = '<div><span class="sheet-date">' + SHEET_DATE + '</span><div class="sheet-title">' + esc(title) + '</div></div>';
+    h += '<div class="sheet-ver">' + esc(ver) + ' &nbsp;<span style="color:#172033;font-size:13px;">' + esc(sheet) + ' Sheet</span></div>';
+
+    h += '<div style="display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start;">';
+    h += '<div><div class="b" style="margin-bottom:4px;">Base Data Summary</div><table class="basebox">';
+    if (m.part === 'both' || m.part === 'ci') {
+      h += '<tr><td class="b">Total ICSS (DCS+ESD+F&G)+MMS IO quantity</td><td class="v">' +
+        fmt(m.nval('ci', 'A01_QTY')) + '</td><td class="red">Enter actual quantity</td></tr>';
+      h += '<tr><td class="b">Total Instrument quantity</td><td class="v">' +
+        fmt(m.nval('ci', 'A02_QTY')) + '</td><td>F&G Inst. included</td></tr>';
+    }
+    if (m.part === 'both' || m.part === 'tel') {
+      h += '<tr><td class="b">Telecom System quantity</td><td class="v">' +
+        fmt(m.nval('tel', 'A01_QTY')) + '</td><td>System Qty</td></tr>';
+    }
+    h += '</table></div>';
+    h += '<div><div class="b" style="margin-bottom:4px;">Notes</div><div class="notesbox">' +
+      '1. The FEED calculation basis is the Unit M/H on the calculation-standards tabs together with the Project Conditions.<br>' +
+      '2. Activities are grouped into a section tree so the OP1 / OP2 results can be reviewed on one screen.</div></div>';
+    h += '</div>';
+    h += '<div class="projbar"><div class="k">PROJECT:</div><div class="v">' + esc(m.project || '') + '</div></div>';
+    h += '<div class="tablebanner">MAN-HOUR CALCULATION TABLE</div>';
+
+    var cols = isOp1
+      ? ['No.', 'Part', 'Activity', 'Unit', 'Qty', 'Difficulty', 'Internal Unit', 'Outsourced Unit',
+         'Internal M/H', 'Outsourced M/H', 'Total M/H', 'Remarks']
+      : ['No.', 'Part', 'Activity', 'Unit', 'Qty', 'Difficulty', 'Internal M/H', 'Outsourced M/H',
+         'Total M/H', 'Remarks'];
+
+    h += '<div class="scrollx"><table class="sheet" style="width:100%">';
+    h += '<tr><th class="head-basic" colspan="6">Basic information</th>';
+    if (isOp1) {
+      h += '<th class="head-unit" colspan="2">Unit M/H</th><th class="head-mh" colspan="2">M/H</th>' +
+        '<th class="head-unit" rowspan="2">Total M/H</th><th class="head-rem" rowspan="2">Remarks</th></tr>';
+    } else {
+      h += '<th class="head-mh" colspan="3">M/H</th><th class="head-rem" rowspan="2">Remarks</th></tr>';
+    }
+    h += '<tr>';
+    cols.forEach(function (name, i) {
+      if (i >= cols.length - (isOp1 ? 2 : 1)) return; // already drawn via rowspan
+      var cls = i < 6 ? 'head-basic' : (name.indexOf('Unit') >= 0 || name.indexOf('Total') >= 0 ? 'head-unit' : 'head-mh');
+      h += '<th class="' + cls + '">' + esc(name) + '</th>';
+    });
+    h += '</tr>';
+
+    var current = null, no = 1;
+    var tot = { hec: 0, ext: 0, total: 0 };
+    rows.forEach(function (r) {
+      var sec = sectionName(r.code);
+      if (sec !== current) {
+        current = sec;
+        h += '<tr class="section"><td colspan="' + cols.length + '">' + esc(current) + '</td></tr>';
+      }
+      h += '<tr class="' + (no % 2 ? '' : 'odd') + '">' +
+        '<td class="ctr">' + no + '</td>' +
+        '<td class="ctr">' + esc(partShort(r.part)) + '</td>' +
+        '<td>' + esc(r.activity) + '</td>' +
+        '<td class="ctr">' + esc(r.unit) + '</td>' +
+        '<td class="num">' + money(r.qty, 1) + '</td>' +
+        '<td class="ctr">' + esc(MH.diffLabel(r.diff)) + '</td>';
+      if (isOp1) {
+        h += '<td class="num int">' + money(r.iu, 2) + '</td><td class="num int">' + money(r.eu, 2) + '</td>';
+      }
+      h += '<td class="num ext">' + fmt(r.hec) + '</td>' +
+        '<td class="num ext">' + fmt(r.ext) + '</td>' +
+        '<td class="num tot">' + fmt(r.total) + '</td>' +
+        '<td></td></tr>';
+      tot.hec += r.hec; tot.ext += r.ext; tot.total += r.total;
+      no += 1;
+    });
+
+    var lead = isOp1 ? 8 : 6;
+    h += '<tr class="total"><td colspan="' + lead + '">SUMMARY</td>' +
+      '<td class="num">' + fmt(tot.hec) + '</td><td class="num">' + fmt(tot.ext) + '</td>' +
+      '<td class="num">' + fmt(tot.total) + '</td><td></td></tr>';
+    h += '</table></div>';
+
+    var mm = m.base_mh ? tot.total / m.base_mh : 0;
+    var avg = m.months ? mm / m.months : 0;
+    h += '<div class="footline">Base M/H: ' + fmt(m.base_mh) + ' &nbsp;|&nbsp; Total M/M: ' + f1(mm) +
+      ' &nbsp;|&nbsp; Design duration: ' + fmt(m.months) + ' months &nbsp;|&nbsp; Average manpower: ' +
+      f1(avg) + ' persons/month</div>';
+    el.innerHTML = h;
+  }
+
+  /* ========================================= Calculation standards CI/TEL */
+  function renderStd(el, part) {
+    var std = m.std[part];
+    var keys = Object.keys(std);
+    var isCi = part === 'ci';
+    var diffs = isCi ? ['SPI', '상', '중', '하'] : ['상', '중', '하'];
+    var title = isCi
+      ? 'C&I Design - Petrochemical FEED Project M/H Calculation Standards (Rev.3)'
+      : 'Telecom Design - Petrochemical FEED Project M/H Calculation Standards (Rev.3)';
+    var version = m.external_min === 'Yes' ? 'Outsourcing Minimization Ver.' : 'Standard Ver.';
+
+    var h = '<div><span class="sheet-date">' + SHEET_DATE + '</span><div class="sheet-title">' + esc(title) + '</div></div>';
+    h += '<div class="std-topbar">' +
+      '<div class="k">Applied standards version\n(Standard vs Outsourcing Minimization)</div>' +
+      '<div class="v">' + esc(version) + '</div>' +
+      '<div class="n"><b>Notes</b><br>' +
+      '1. M/H is derived from the Project standard difficulty, the Unit M/H difficulty grade and whether SPI is applied.<br>' +
+      '2. The yellow / green number cells can be edited directly and feed straight into Summary, Output and OP.</div></div>';
+
+    h += '<div class="scrollx"><table class="std" style="width:100%">';
+    h += '<tr><th class="basic" rowspan="3">NO.</th><th class="basic" rowspan="3">Activity</th>' +
+      '<th class="basic" rowspan="3">Unit</th>' +
+      '<th colspan="' + diffs.length + '">Unit M/H by difficulty</th>' +
+      '<th colspan="' + diffs.length + '">Unit M/H by difficulty</th>' +
+      '<th class="guide" rowspan="2">MAN-HOUR CALCULATION GUIDELINES</th></tr>';
+    h += '<tr><th colspan="' + diffs.length + '">Internal Unit M/H</th>' +
+      '<th colspan="' + diffs.length + '">Outsourced Unit M/H</th></tr>';
+    h += '<tr>' + diffs.map(function (d) { return '<th>' + esc(MH.diffLabel(d)) + '</th>'; }).join('') +
+      diffs.map(function (d) { return '<th>' + esc(MH.diffLabel(d)) + '</th>'; }).join('') +
+      '<th class="guide">Guide</th></tr>';
+
+    keys.forEach(function (key, i) {
+      var r = std[key];
+      h += '<tr class="' + ((i + 1) % 2 ? '' : 'odd') + '">' +
+        '<td class="ctr">' + (i + 1) + '</td>' +
+        '<td class="act">' + esc(r.activity || '') + '</td>' +
+        '<td class="ctr">' + esc(r.unit || '') + '</td>';
+      ['int', 'ext'].forEach(function (typ) {
+        diffs.forEach(function (d) {
+          var v = (r[typ] && r[typ][d] !== undefined) ? r[typ][d] : 0;
+          h += '<td class="v' + typ + '"><input class="v" type="text" inputmode="decimal" ' +
+            'data-part="' + part + '" data-key="' + esc(key) + '" data-typ="' + typ + '" data-diff="' + esc(d) + '" ' +
+            'id="std-' + part + '-' + esc(key) + '-' + typ + '-' + esc(d) + '" value="' + esc(v) + '"></td>';
+        });
+      });
+      h += '<td class="guide">' + esc(r.guide || '') + '</td></tr>';
+    });
+    h += '</table></div>';
+    el.innerHTML = h;
+
+    el.querySelectorAll('input.v').forEach(function (inp) {
+      inp.addEventListener('change', function () {
+        var raw = inp.value.trim();
+        var n;
+        if (raw === '') n = 0;
+        else {
+          n = parseFloat(raw.replace(/,/g, ''));
+          if (isNaN(n)) { toast('Numbers only.'); inp.focus(); return; }
+        }
+        updateStdValue(inp.dataset.part, inp.dataset.key, inp.dataset.typ, inp.dataset.diff, n);
+      });
+      inp.addEventListener('keydown', function (e) { if (e.key === 'Enter') inp.blur(); });
+    });
+  }
+
+  /* Editing a standard's Unit M/H also updates the std copy held on each
+   * Output row (App.update_std_value). */
+  function updateStdValue(part, key, typ, diff, value) {
+    var st = m.std[part][key];
+    if (!st) return;
+    if (!st[typ]) st[typ] = {};
+    st[typ][diff] = value;
+    var target = st.activity;
+    m.outputs.forEach(function (o) {
+      if (o.part === part && o.std && o.std.activity === target) {
+        if (!o.std[typ]) o.std[typ] = {};
+        o.std[typ][diff] = value;
+      }
+    });
+    m.recalc();
+    refreshAll();
+    saveState(true);
+  }
+
+  /* ============================================================ Guide/Help */
+  function renderGuide(el) {
+    function block(head, body, warn) {
+      return '<div class="block' + (warn ? ' warn' : '') + '"><h3>' + esc(head) + '</h3><ul>' +
+        body.split('\n').map(function (l) { return '<li>' + esc(l) + '</li>'; }).join('') + '</ul></div>';
+    }
+    var h = '<div class="guide">';
+    h += '<h1>M/H Calculation Guide</h1><div class="sub">Attachment #3-1 &nbsp;|&nbsp; Web Application Guide</div>';
+    h += '<h2>I. About each sheet (tab)</h2>';
+    [['1. Summary sheet', 'Shows the combined C&I + Telecom M/H summary for the values entered in Master Control.\nPart, Case, Outsourcing Minimization, the internal/external ratio, Base M/H, design duration and unit rates all feed both the Summary and the Output tabs.\nUse it to check the outsourcing estimate, Total M/H, Total M/M and average manpower.'],
+     ['2. Standards_CI / Standards_TEL sheets', 'The reference tables of internal and outsourced Unit M/H per difficulty grade.\nUse them to review the activity, unit, difficulty, internal/external Unit M/H and the guidance text.\nEditing a yellow (internal) or green (outsourced) number cell recalculates every result immediately.'],
+     ['3. Edit Inputs sheet', 'Where you enter the quantities and Project Conditions the calculation is built on.\nYellow is a required input, blue mirrors Master Control, green is an automatic result and purple is an optional selection.\nSelection items are chosen from a drop-down.'],
+     ['4. Output_CI / Output_TEL sheets', 'A per-Part calculation sheet showing activity, unit, quantity, difficulty, internal/external M/H and Total M/H.\nThe Case and Outsourcing Minimization settings from Master Control are applied.'],
+     ['5. OP1 / OP2 sheets', 'OP1 shows the internal and external Unit M/H and the resulting M/H for every activity.\nOP2-Single and OP2-Comprehensive are the reporting views, each fixed to its own Case regardless of the Case selected in Master Control.'],
+     ['6. Generate Word report', 'Downloads a Word report (.doc) built from the current Master Control values, summary and key calculation results.\nIt is saved to the browser download folder and opens directly in Microsoft Word.']
+    ].forEach(function (x) { h += block(x[0], x[1]); });
+
+    h += '<h2>II. About each Case</h2>';
+    [['1. Outsourcing-Single Case', 'The externally performed share is priced at the Outsourcing-Single unit rate.\nUse it for ordinary FEED calculations that separate internal review from outsourced execution.'],
+     ['2. Outsourcing-Comprehensive Case', 'The externally performed share is priced at the Outsourcing-Comprehensive unit rate.\nUse it to study conditions where one subcontractor performs several disciplines together.']
+    ].forEach(function (x) { h += block(x[0], x[1]); });
+
+    h += '<h2>III. About Outsourcing Minimization</h2>';
+    [['1. Outsourcing Minimization - Yes', 'The internal/external M/H ratio is fixed at 75/25.\nThe same split applies to the Summary, Output, OP tabs and the Word report.', false],
+     ['2. Outsourcing Minimization - No', 'The ratio is derived from the internal and outsourced Unit M/H of the original calculation standards.', false],
+     ['3. Original basis vs Outsourcing Minimization', 'The original basis keeps the Unit M/H structure of the source standards.\nTo apply Outsourcing Minimization, use the user-entered ratio.', true]
+    ].forEach(function (x) { h += block(x[0], x[1], x[2]); });
+
+    h += '<h2>IV. Order of use</h2>';
+    h += block('1. Enter the basic information', 'In Master Control on the left, enter the Project, Part, Case, Base M/H, design duration and outsourcing unit rates.');
+    h += block('2. Edit the inputs', 'On the Edit Inputs tab, review the quantities and selection conditions and change whatever needs changing.');
+    h += block('3. Check the output and generate the report', 'Review the results on the Summary, Output and OP tabs, then generate the Word report.');
+
+    h += '<h2>V. About saving your inputs</h2>';
+    h += block('1. Automatic save', 'Your inputs and any edits to the calculation standards are saved to the browser (localStorage) automatically and restored the next time you open the page.\nUse "Load saved inputs" to return to the last saved state at any time.');
+    h += block('2. Export / import a file', '"Export inputs" saves a JSON file.\nIt uses the same format as the desktop program\'s FEED_MH_Calculator_Last_Input.json, so the two can exchange files.');
+    h += '</div>';
+    el.innerHTML = h;
+  }
+
+  /* =============================================================== state */
+  function collectState() {
+    return {
+      project: m.project,
+      part: m.part,
+      case: m.case_,
+      ratio_mode: m.ratio_mode,
+      external_min: m.external_min,
+      base_mh: m.base_mh,
+      months: m.months,
+      rate_short: m.rate_short,
+      rate_comp: m.rate_comp,
+      internal_pct: m.internal_pct,
+      external_pct: m.external_pct,
+      inputs: m.inputs.map(function (x) { return { part: x.part, code: x.code, value: x.value }; }),
+      std: m.std
+    };
+  }
+
+  function saveState(silent) {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(collectState()));
+      if (!silent) toast('Inputs saved in this browser.');
+    } catch (e) {
+      if (!silent) toast('Save failed: ' + e.message);
+    }
+  }
+
+  /* Same restore logic as Python's App.load_user_state() */
+  function applyState(data) {
+    m.project = data.project || '';
+    m.part = data.part || 'both';
+    m.case_ = data.case || 'short';
+    m.ratio_mode = data.ratio_mode || 'original';
+    m.external_min = data.external_min || 'No';
+    m.base_mh = num(data.base_mh === undefined ? 161 : data.base_mh);
+    m.months = num(data.months === undefined ? 4 : data.months);
+    m.rate_short = num(data.rate_short === undefined ? 32000 : data.rate_short);
+    m.rate_comp = num(data.rate_comp === undefined ? 39000 : data.rate_comp);
+    m.internal_pct = num(data.internal_pct || 0);
+    m.external_pct = num(data.external_pct || 0);
+
+    var mp = {};
+    m.inputs.forEach(function (x) { mp[x.part + '|' + x.code] = x; });
+    (data.inputs || []).forEach(function (item) {
+      var t = mp[item.part + '|' + item.code];
+      if (t) t.value = item.value;
+    });
+
+    if (data.std && typeof data.std === 'object') {
+      ['ci', 'tel'].forEach(function (part) {
+        var sd = data.std[part];
+        if (!sd || typeof sd !== 'object') return;
+        Object.keys(sd).forEach(function (sk) {
+          if (m.std[part][sk] && typeof sd[sk] === 'object') {
+            Object.keys(sd[sk]).forEach(function (f) { m.std[part][sk][f] = sd[sk][f]; });
+          }
+        });
+      });
+      // refresh the std copy held on each Output row as well
+      m.outputs.forEach(function (o) {
+        if (!o.std) return;
+        var table = m.std[o.part] || {};
+        var keys = Object.keys(table);
+        for (var i = 0; i < keys.length; i++) {
+          if (table[keys[i]].activity === o.std.activity) {
+            var src = table[keys[i]];
+            Object.keys(src).forEach(function (f) { o.std[f] = src[f]; });
+            break;
+          }
+        }
+      });
+    }
+    m.sync_common();
+    m.recalc();
+    writeControls();
+  }
+
+  function loadState(showMsg) {
+    var raw;
+    try { raw = localStorage.getItem(STORAGE_KEY); } catch (e) { raw = null; }
+    if (!raw) {
+      if (showMsg) toast('No saved inputs found.');
+      return false;
+    }
+    try {
+      applyState(JSON.parse(raw));
+      refreshAll();
+      if (showMsg) toast('Saved inputs loaded.');
+      return true;
+    } catch (e) {
+      if (showMsg) toast('Load failed: ' + e.message);
+      return false;
+    }
+  }
+
+  function exportState() {
+    var blob = new Blob([JSON.stringify(collectState(), null, 2)], { type: 'application/json;charset=utf-8' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = 'FEED_MH_Calculator_Input_Backup.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 1500);
+    toast('Inputs exported as a JSON file.');
+  }
+
+  function importState(file) {
+    var reader = new FileReader();
+    reader.onload = function () {
+      try {
+        var data = JSON.parse(String(reader.result));
+        applyState(data);
+        refreshAll();
+        saveState(true);
+        toast('Input file loaded.');
+      } catch (e) {
+        toast('Import failed: ' + e.message);
+      }
+    };
+    reader.readAsText(file, 'utf-8');
+  }
+
+  function resetState() {
+    if (!confirm('Reset all inputs?\nThe last saved state will be deleted as well.')) return;
+    try { localStorage.removeItem(STORAGE_KEY); } catch (e) { /* ignore */ }
+    m = new MH.Model();
+    writeControls();
+    refreshAll();
+    toast('Inputs reset.');
+  }
+
+  /* ============================================================== Report */
+  function reportData() {
+    applyLeft();
+    var ci = m.partTotals('ci');
+    var tel = m.partTotals('tel');
+    var total = {
+      internal: ci.internal + tel.internal,
+      external: ci.external + tel.external,
+      total: ci.total + tel.total
+    };
+    total.mm = m.base_mh ? total.total / m.base_mh : 0;
+    total.avg = m.months ? total.mm / m.months : 0;
+    return {
+      project: m.project || '-', external_min: m.external_min,
+      base_mh: m.base_mh, months: m.months,
+      rate_short: m.rate_short, rate_comp: m.rate_comp,
+      ci: ci, tel: tel, total: total,
+      short_cost: total.external * m.rate_short,
+      comp_cost: total.external * m.rate_comp,
+      std: m.std
+    };
+  }
+
+  function generateReport() {
+    try {
+      MHReport.download(reportData(), typeof HYUNDAI_LOGO_B64 !== 'undefined' ? HYUNDAI_LOGO_B64 : null,
+        'FEED_MH_Report_Hyundai.doc');
+      toast('Word report (.doc) downloaded.');
+    } catch (e) {
+      toast('Word report generation failed: ' + e.message);
+    }
+  }
+
+  /* ================================================================ start-up */
+  function bindControls() {
+    ['mc-part', 'mc-case', 'mc-ratio'].forEach(function (id) {
+      $(id).addEventListener('change', applyLeft);
+    });
+    $('mc-external').addEventListener('change', function () {
+      if ($('mc-external').value === 'Yes') {
+        $('mc-ratio').value = 'User entered';
+        $('mc-ip').value = '75.0';
+        $('mc-ep').value = '25.0';
+      }
+      applyLeft();
+    });
+    ['mc-project', 'mc-base', 'mc-months', 'mc-rate-short', 'mc-rate-comp'].forEach(function (id) {
+      $(id).addEventListener('change', applyLeft);
+      $(id).addEventListener('keydown', function (e) { if (e.key === 'Enter') $(id).blur(); });
+    });
+    $('mc-ip').addEventListener('input', function () {
+      if (suppressRatioSync) return;
+      var v = parseFloat($('mc-ip').value);
+      if (isNaN(v)) return;
+      suppressRatioSync = true;
+      $('mc-ep').value = f1(100 - v);
+      $('mc-ratio').value = 'User entered';
+      suppressRatioSync = false;
+    });
+    $('mc-ep').addEventListener('input', function () {
+      if (suppressRatioSync) return;
+      var v = parseFloat($('mc-ep').value);
+      if (isNaN(v)) return;
+      suppressRatioSync = true;
+      $('mc-ip').value = f1(100 - v);
+      $('mc-ratio').value = 'User entered';
+      suppressRatioSync = false;
+    });
+    $('mc-ip').addEventListener('change', applyLeft);
+    $('mc-ep').addEventListener('change', applyLeft);
+
+    $('btn-recalc').addEventListener('click', function () { applyLeft(); toast('Output recalculated.'); });
+    $('btn-save').addEventListener('click', function () { saveState(false); });
+    $('btn-load').addEventListener('click', function () { loadState(true); });
+    $('btn-export').addEventListener('click', exportState);
+    $('btn-import').addEventListener('click', function () { $('file-import').click(); });
+    $('file-import').addEventListener('change', function (e) {
+      if (e.target.files && e.target.files[0]) importState(e.target.files[0]);
+      e.target.value = '';
+    });
+    $('btn-reset').addEventListener('click', resetState);
+    $('btn-report').addEventListener('click', generateReport);
+    $('btn-print').addEventListener('click', function () { window.print(); });
+  }
+
+  function init() {
+    if (typeof HYUNDAI_LOGO_B64 !== 'undefined' && HYUNDAI_LOGO_B64) {
+      $('logo').src = 'data:image/png;base64,' + HYUNDAI_LOGO_B64;
+    } else {
+      $('logo').style.display = 'none';
+    }
+    buildTabs();
+    bindControls();
+    writeControls();
+    loadState(false);
+    refreshAll();
+    selectTab(activeTab);
+    window.addEventListener('beforeunload', function () { saveState(true); });
+  }
+
+  document.addEventListener('DOMContentLoaded', init);
+})();
+</script>
+</body>
+</html>
