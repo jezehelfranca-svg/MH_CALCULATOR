@@ -8,10 +8,13 @@ FEED M/H Calculator V0.4 OPExcelGrid / 2026-08-11
 
 
 [Web (HTML) version]
-- Open web/index.html in a browser to use the same calculation with no installation.
+- FEED_MH_Calculator.html is a single self-contained file: open it in a browser and it runs.
+  No installation, no Python, no server, and no external files - styles, calculation model,
+  report generator, base data and logo are all inside that one file.
+- Works from a local disk, a USB stick, an email attachment or a static web server.
 - The tab structure (Edit Inputs / Guide / Summary / Output_CI / Output_TEL / OP1 /
   OP2-Single / OP2-Comprehensive / Standards_CI / Standards_TEL) and the results are
   identical to the desktop program. The interface is in English.
 - Inputs are saved in the browser automatically, and JSON export/import lets the web app
   and the desktop program exchange input files.
-- See web/README.md for details.
+- See WEB_APP.md for details.
