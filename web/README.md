@@ -1,59 +1,77 @@
 # FEED M/H Calculator — HTML Web App
 
-`FEED_MH_Calculator_V0_4_OPExcelGrid.py` (Tkinter 데스크톱 프로그램)와 **같은 계산 결과**를 내는
-브라우저용 버전입니다. 설치·파이썬·서버 없이 동작합니다.
+A browser version of `FEED_MH_Calculator_V0_4_OPExcelGrid.py` (the Tkinter desktop program)
+that produces **the same calculation results**. No install, no Python, no server.
 
-## 실행 방법
+## Running it
 
-`web/index.html` 을 브라우저에서 열면 됩니다. (더블클릭 또는 브라우저로 끌어놓기)
+Open `web/index.html` in a browser — double-click it, or drag it onto a browser window.
 
-사내 서버 등에 올려서 쓰려면 `web` 폴더를 그대로 정적 호스팅하면 됩니다.
+To host it internally, serve the `web` folder as static files:
 
 ```
-python -m http.server 8000 --directory web    # 예시
+python -m http.server 8000 --directory web    # example
 ```
 
-## 구성
+## Layout
 
-| 파일 | 내용 |
+| File | Contents |
 | --- | --- |
-| `index.html` | 화면 뼈대 (Master Control + 10개 탭) |
-| `css/styles.css` | 데스크톱 프로그램과 동일한 색상 팔레트 / Excel 형태 표 서식 |
-| `js/data.js` | 파이썬 소스에서 자동 추출한 기준 데이터 (Input 96행, Output 54행, 산출기준 CI 32 / TEL 17행) + 로고 |
-| `js/model.js` | `Model` 클래스 이식 (난이도 산정, 수량 자동계산, 내부/외주 배분, Case 로직) |
-| `js/app.js` | 탭 렌더링, 입력 처리, 상태 저장/복원 |
-| `js/report.js` | Word Report 생성 (`report_utils.py` 구성과 동일) |
+| `index.html` | Page skeleton (Master Control + 10 tabs) |
+| `css/styles.css` | The desktop program's colour palette and Excel-style table formatting |
+| `js/data.js` | Base data extracted from the Python source (96 input rows, 54 output rows, 32 CI / 17 TEL calculation standards) plus the logo |
+| `js/model.js` | Port of the `Model` class (difficulty derivation, auto quantities, internal/outsourced split, Case logic) |
+| `js/app.js` | Tab rendering, input handling, state save/restore |
+| `js/report.js` | Word report generation (same structure as `report_utils.py`) |
 
-## 탭 구성 (데스크톱과 동일)
+## Tabs (same as the desktop program)
 
-`Input 수정` · `Guide / Help` · `Summary` · `Output_CI` · `Output_TEL` ·
-`OP1` · `OP2-단종` · `OP2-종합` · `산출기준_CI` · `산출기준_TEL`
+`Edit Inputs` · `Guide / Help` · `Summary` · `Output_CI` · `Output_TEL` ·
+`OP1` · `OP2-Single` · `OP2-Comprehensive` · `Standards_CI` · `Standards_TEL`
 
-## 계산 결과 동일성
+## Result parity
 
-파이썬 `Model` 과 자바스크립트 `Model` 을 다음 조건으로 교차 검증했습니다.
+The Python `Model` and the JavaScript `Model` were cross-checked over:
 
-- Part(전체/CI/TEL) × Case(단종/종합) × 비율(원본/외주최소화/사용자) × FEED 난이도 3종 = **57개 시나리오**
-- 각 시나리오의 **모든 Activity 행**(수량·난이도·내부/외주 Unit M/H·내부/외주/Total M/H)과 합계·비율 → 전부 일치
-- 숫자 표기도 파이썬 `format(v, ',.0f')` / `',.1f'` / `',.2f'` 과 동일 (정확히 .5 인 값의 짝수 반올림 포함)
+- Part (All / CI / TEL) × Case (Single / Comprehensive) × ratio basis (original / outsourcing-minimized / user) × 3 FEED difficulty levels = **57 scenarios**
+- Every Activity row of every scenario (quantity, difficulty, internal/outsourced Unit M/H, internal/outsourced/total M/H) plus the totals and ratios → all identical
+- Number formatting matches Python's `format(v, ',.0f')` / `',.1f'` / `',.2f'`, including banker's rounding on exact `.5` values
 
-## 데스크톱 프로그램과 달라진 점
+## Language
 
-| 항목 | 데스크톱 | 웹 |
+The interface and all data strings are in English. Three things stay in Korean **inside the
+data on purpose**, because they are calculation keys rather than display text:
+
+- the 상 / 중 / 하 / SPI keys of each standard's `int` / `ext` Unit M/H maps,
+- the dictionary keys of the standards tables,
+- the stored value of a computed difficulty input.
+
+Keeping them means the calculation stays byte-identical to the Python model and an exported
+state file can still be read by the desktop program. `DIFF_LABEL` / `diffLabel()` in
+`js/model.js` render them as High / Medium / Low / SPI-Internal / SPI-External.
+
+Data strings are translated when `js/data.js` is generated, using `tools/ko_en.json`.
+
+## Differences from the desktop program
+
+| Item | Desktop | Web |
 | --- | --- | --- |
-| 입력값 저장 | 프로그램 폴더의 `FEED_MH_Calculator_Last_Input.json` | 브라우저 localStorage 자동 저장 + JSON 파일 내보내기/가져오기 |
-| Word Report | `python-docx` 로 `.docx` 생성 | Word 가 그대로 여는 `.doc`(HTML) 파일 다운로드. 차트는 표 기반 막대그래프로 대체 |
-| 산출기준 값 수정 | 셀 더블클릭 후 입력 | 셀을 바로 클릭해 입력 |
-| 산출기준 탭의 Version 표기 | `일반 Ver.` 고정 | 외주최소화 값에 따라 `일반 Ver.` / `외주최소화 Ver.` 표시 (다른 탭과 동일하게 맞춤) |
-| OP / 산출기준 그리드 | Tkinter Canvas 직접 그리기 | HTML 표 (같은 열 구성·색상·머리글 구조, 화면 폭에 맞춰 가로 스크롤) |
+| Saving inputs | `FEED_MH_Calculator_Last_Input.json` beside the program | Auto-saved to browser localStorage, plus JSON export/import |
+| Word report | `.docx` via `python-docx` | `.doc` (HTML) download that Word opens natively; charts become table-based bar graphics |
+| Editing a standard's value | Double-click the cell, then type | Click the cell and type |
+| Version label on the standards tabs | Hard-coded `일반 Ver.` | Follows the Outsourcing Minimization setting, like every other tab |
+| OP / standards grids | Drawn on a Tkinter canvas | HTML tables (same columns, colours and header structure, with horizontal scrolling) |
 
-내보낸 JSON 은 데스크톱 프로그램의 `FEED_MH_Calculator_Last_Input.json` 과 형식이 같아
-양쪽에서 서로 불러올 수 있습니다.
+The exported JSON uses the same format as the desktop program's
+`FEED_MH_Calculator_Last_Input.json`, so the two can load each other's files.
 
-## 데이터 갱신
+## Regenerating the data
 
-`FEED_MH_Calculator_V0_4_OPExcelGrid.py` 의 기준 데이터가 바뀌면 `js/data.js` 를 다시 만들어야 합니다.
+If the base data in `FEED_MH_Calculator_V0_4_OPExcelGrid.py` changes, rebuild `js/data.js`:
 
 ```bash
 python3 tools/gen_web_data.py
 ```
+
+Any Korean string that is not yet in `tools/ko_en.json` is reported on stderr and left
+untranslated, so new text is easy to spot.

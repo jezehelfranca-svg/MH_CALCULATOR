@@ -1,5 +1,5 @@
-/* FEED M/H Calculator - 화면 구성 및 이벤트 처리
- * 데스크톱 프로그램(App 클래스)의 탭 구성/렌더링을 웹으로 옮긴 것입니다. */
+/* FEED M/H Calculator - screen layout and event handling
+ * A web port of the tab structure and rendering of the desktop App class. */
 (function () {
   'use strict';
 
@@ -8,16 +8,16 @@
   var STORAGE_KEY = 'FEED_MH_Calculator_Last_Input';
 
   var TABS = [
-    { id: 'tab-input', label: 'Input 수정', render: renderInput },
+    { id: 'tab-input', label: 'Edit Inputs', render: renderInput },
     { id: 'tab-guide', label: 'Guide / Help', render: renderGuide },
     { id: 'tab-summary', label: 'Summary', render: renderSummary },
     { id: 'tab-output-ci', label: 'Output_CI', render: function (el) { renderOutput(el, 'ci'); } },
     { id: 'tab-output-tel', label: 'Output_TEL', render: function (el) { renderOutput(el, 'tel'); } },
     { id: 'tab-op1', label: 'OP1', render: function (el) { renderOp(el, 'OP1'); } },
-    { id: 'tab-op2-short', label: 'OP2-단종', render: function (el) { renderOp(el, 'OP2-단종'); } },
-    { id: 'tab-op2-comp', label: 'OP2-종합', render: function (el) { renderOp(el, 'OP2-종합'); } },
-    { id: 'tab-std-ci', label: '산출기준_CI', render: function (el) { renderStd(el, 'ci'); } },
-    { id: 'tab-std-tel', label: '산출기준_TEL', render: function (el) { renderStd(el, 'tel'); } }
+    { id: 'tab-op2-short', label: 'OP2-Single', render: function (el) { renderOp(el, 'OP2-Single'); } },
+    { id: 'tab-op2-comp', label: 'OP2-Comprehensive', render: function (el) { renderOp(el, 'OP2-Comprehensive'); } },
+    { id: 'tab-std-ci', label: 'Standards_CI', render: function (el) { renderStd(el, 'ci'); } },
+    { id: 'tab-std-tel', label: 'Standards_TEL', render: function (el) { renderStd(el, 'tel'); } }
   ];
 
   var m = new MH.Model();
@@ -25,7 +25,7 @@
   var dirty = {};
   var suppressRatioSync = false;
 
-  /* ------------------------------------------------------------------ 유틸 */
+  /* ----------------------------------------------------------------- utils */
   function $(id) { return document.getElementById(id); }
 
   function esc(s) {
@@ -43,7 +43,8 @@
     toastTimer = setTimeout(function () { t.classList.remove('show'); }, 2600);
   }
 
-  function partLabel(p) { return MH.P[p] || p; }
+  // Compact label for the Part column of the Input / OP tables
+  function partShort(p) { return MH.P_SHORT[p] || p; }
 
   /* ------------------------------------------------------- Master Control */
   function ctlValues() {
@@ -62,12 +63,12 @@
     };
   }
 
-  /* Python App.apply_left() 과 동일한 처리 */
+  /* Same behaviour as Python's App.apply_left() */
   function applyLeft() {
     var v = ctlValues();
     m.part = MH.REV[v.part] || 'both';
-    m.case_ = v.case_ === '외주-단종' ? 'short' : 'comp';
-    m.ratio_mode = v.ratio === '원본 기준' ? 'original' : 'custom';
+    m.case_ = v.case_ === 'Outsourcing-Single' ? 'short' : 'comp';
+    m.ratio_mode = v.ratio === 'Original basis' ? 'original' : 'custom';
     m.external_min = v.external;
     m.project = v.project;
     m.base_mh = num(v.base);
@@ -86,11 +87,11 @@
     saveState(true);
   }
 
-  /* Python App.apply_user_state_to_vars() 과 동일 */
+  /* Same behaviour as Python's App.apply_user_state_to_vars() */
   function writeControls() {
-    $('mc-part').value = MH.P[m.part] || '전체';
-    $('mc-case').value = m.case_ === 'short' ? '외주-단종' : '외주-종합';
-    $('mc-ratio').value = m.ratio_mode === 'original' ? '원본 기준' : '사용자 입력';
+    $('mc-part').value = MH.P[m.part] || 'All';
+    $('mc-case').value = m.case_ === 'short' ? 'Outsourcing-Single' : 'Outsourcing-Comprehensive';
+    $('mc-ratio').value = m.ratio_mode === 'original' ? 'Original basis' : 'User entered';
     $('mc-external').value = m.external_min;
     $('mc-project').value = String(m.project || '');
     $('mc-base').value = String(m.base_mh);
@@ -101,7 +102,7 @@
     $('mc-ep').value = f1(m.external_pct);
   }
 
-  /* --------------------------------------------------------- 탭 렌더 관리 */
+  /* ------------------------------------------------------- tab render mgmt */
   function buildTabs() {
     var bar = $('tabbar');
     bar.innerHTML = TABS.map(function (t) {
@@ -132,7 +133,7 @@
     dirty[id] = false;
   }
 
-  /* 모든 탭을 다시 그려야 함을 표시하고, 현재 보이는 탭만 즉시 렌더합니다. */
+  /* Mark every tab stale, then render only the one currently on screen. */
   function refreshAll() {
     m.sync_common();
     m.recalc();
@@ -162,8 +163,10 @@
     try { if (info.start !== null && el.setSelectionRange) el.setSelectionRange(info.start, info.end); } catch (e) { /* number input */ }
   }
 
-  /* ============================================================ Input 수정 */
-  /* 계산된 난이도 셀이 비어 보이지 않도록 하는 표시용 보정 (App.fallback_diff) */
+  /* =========================================================== Edit Inputs */
+  /* Display-side fallback so a computed difficulty cell is never blank
+   * (App.fallback_diff). Returns the raw Korean grade used as a lookup key;
+   * MH.diffLabel() turns it into the English label. */
   function fallbackDiff(part, code) {
     var val = m.val(part, code);
     if (val !== null && val !== undefined && val !== '') return val;
@@ -205,25 +208,28 @@
   }
 
   function inputKind(x) {
-    if (x.type === 'computed') return '자동결과';
-    if (x.code === 'CTRL_EXTERNAL_MIN') return 'Master연동';
-    if (x.code.indexOf('CTRL') === 0 || /_QTY$/.test(x.code) || /_VALUE$/.test(x.code)) return '필수';
-    return '선택';
+    if (x.type === 'computed') return 'Auto result';
+    if (x.code === 'CTRL_EXTERNAL_MIN') return 'Master linked';
+    if (x.code.indexOf('CTRL') === 0 || /_QTY$/.test(x.code) || /_VALUE$/.test(x.code)) return 'Required';
+    return 'Optional';
   }
 
-  var KIND_CLASS = { '자동결과': 'k-auto', 'Master연동': 'k-master', '필수': 'k-req', '선택': 'k-opt' };
+  var KIND_CLASS = {
+    'Auto result': 'k-auto', 'Master linked': 'k-master',
+    'Required': 'k-req', 'Optional': 'k-opt'
+  };
 
   function renderInput(el) {
     var h = '';
     h += '<div class="legend">' +
-      '<span><span class="sw" style="background:#FFF2CC"></span>필수 입력</span>' +
-      '<span><span class="sw" style="background:#DDEBF7"></span>Master 연동</span>' +
-      '<span><span class="sw" style="background:#E2F0D9"></span>자동결과</span>' +
-      '<span><span class="sw" style="background:#EFE7FF"></span>선택 입력</span>' +
-      '<span style="color:#506980">값을 바꾸면 Summary / Output / OP 탭이 즉시 다시 계산됩니다.</span>' +
+      '<span><span class="sw" style="background:#FFF2CC"></span>Required input</span>' +
+      '<span><span class="sw" style="background:#DDEBF7"></span>Master linked</span>' +
+      '<span><span class="sw" style="background:#E2F0D9"></span>Auto result</span>' +
+      '<span><span class="sw" style="background:#EFE7FF"></span>Optional input</span>' +
+      '<span style="color:#506980">Changing a value recalculates the Summary / Output / OP tabs at once.</span>' +
       '</div>';
     h += '<div class="scrollx"><table class="inputs"><thead><tr>' +
-      ['Part', 'Code', '구분', '중분류', '입력 항목', '입력값', '단위', 'Note']
+      ['Part', 'Code', 'Type', 'Sub-group', 'Input item', 'Value', 'Unit', 'Note']
         .map(function (t) { return '<th>' + t + '</th>'; }).join('') +
       '</tr></thead><tbody>';
 
@@ -235,8 +241,8 @@
       var editor;
       if (x.type === 'computed') {
         var dv = fallbackDiff(x.part, x.code);
-        x.value = dv;
-        editor = '<span class="readonly auto">' + esc(dv) + '</span>';
+        x.value = dv;   // stored raw so the exported file stays desktop-compatible
+        editor = '<span class="readonly auto">' + esc(MH.diffLabel(dv)) + '</span>';
       } else if (x.code === 'CTRL_EXTERNAL_MIN') {
         editor = '<span class="readonly master">' + esc(m.external_min) + '</span>';
       } else if (x.type === 'select') {
@@ -251,10 +257,10 @@
           ' value="' + esc(x.value) + '">';
       }
       var note = x.code === 'CTRL_EXTERNAL_MIN'
-        ? '왼쪽 Master Control 값이 그대로 표시됩니다. 이 행에서는 선택/수정하지 않습니다.'
+        ? 'Mirrors the value set in Master Control on the left. This row is not editable.'
         : (x.note || '');
       h += '<tr>' +
-        '<td class="ctr">' + esc(partLabel(x.part)) + '</td>' +
+        '<td class="ctr">' + esc(partShort(x.part)) + '</td>' +
         '<td class="ctr">' + esc(x.code) + '</td>' +
         '<td class="kind ' + KIND_CLASS[kind] + '">' + kind + '</td>' +
         '<td>' + esc(x.middle || '') + '</td>' +
@@ -291,42 +297,42 @@
     var tel = m.partTotals('tel');
     var all = m.partTotals('both');
     var p = m.pct();
-    var caseLabel = m.case_ === 'short' ? '외주-단종 Case' : '외주-종합 Case';
+    var caseLabel = m.case_ === 'short' ? 'Outsourcing-Single Case' : 'Outsourcing-Comprehensive Case';
     var rate = m.case_ === 'short' ? m.rate_short : m.rate_comp;
-    var verLabel = m.external_min === 'Yes' ? '외주최소화 Ver.' : '일반 Ver.';
+    var verLabel = m.external_min === 'Yes' ? 'Outsourcing Minimization Ver.' : 'Standard Ver.';
 
     function mmOf(v) { return m.base_mh ? v / m.base_mh : 0; }
     function headOf(v) { return (m.base_mh && m.months) ? v / m.base_mh / m.months : 0; }
 
-    var h = '<div class="summary-title">FEED사업 M/H Summary (C&amp;I + 통신)</div>';
+    var h = '<div class="summary-title">FEED Project M/H Summary (C&amp;I + Telecom)</div>';
     h += '<div class="summary-head">' +
       '<span class="chip">PROJECT : ' + esc(m.project || '-') + '</span>' +
-      '<span class="chip' + (m.external_min === 'Yes' ? ' on' : '') + '">Master 외주최소화 : ' + esc(m.external_min) + '</span>' +
-      '<span class="chip">내부/외부 ' + f1(p.ip) + ' / ' + f1(p.ep) + '</span>' +
-      '<span class="chip">' + esc(caseLabel) + ' · 단가 ' + fmt(rate) + ' 원</span>' +
+      '<span class="chip' + (m.external_min === 'Yes' ? ' on' : '') + '">Outsourcing Minimization : ' + esc(m.external_min) + '</span>' +
+      '<span class="chip">Internal / External ' + f1(p.ip) + ' / ' + f1(p.ep) + '</span>' +
+      '<span class="chip">' + esc(caseLabel) + ' &middot; unit rate ' + fmt(rate) + ' KRW</span>' +
       '</div>';
 
     h += '<table class="summary"><caption>1. M/H Summary</caption>';
-    h += '<tr><th rowspan="2">구분</th><th colspan="4">합계</th></tr>';
-    h += '<tr><th>내부</th><th>외주</th><th>Total</th><th>예가</th></tr>';
+    h += '<tr><th rowspan="2">Item</th><th colspan="4">Grand total</th></tr>';
+    h += '<tr><th>Internal</th><th>Outsourced</th><th>Total</th><th>Est. cost</th></tr>';
     h += '<tr><td class="lbl">M/H</td><td>' + fmt(all.internal) + '</td><td>' + fmt(all.external) +
       '</td><td>' + fmt(all.total) + '</td><td>' + fmt(all.external * rate) + '</td></tr>';
     h += '<tr><td class="lbl">M/M</td><td>' + f1(mmOf(all.internal)) + '</td><td>' + f1(mmOf(all.external)) +
       '</td><td>' + f1(all.mm) + '</td><td>-</td></tr>';
-    h += '<tr><td class="lbl">투입 인원</td><td>' + f1(headOf(all.internal)) + '</td><td>' + f1(headOf(all.external)) +
+    h += '<tr><td class="lbl">Manpower</td><td>' + f1(headOf(all.internal)) + '</td><td>' + f1(headOf(all.external)) +
       '</td><td>' + f1(all.avg) + '</td><td>-</td></tr>';
     h += '</table>';
 
-    h += '<table class="summary"><caption>2. M/H 상세내역</caption>';
-    h += '<tr><th rowspan="3">구분</th><th colspan="4">C&amp;I설계 Part (' + esc(caseLabel) + ')</th>' +
-      '<th colspan="4">통신설계 Part (' + esc(caseLabel) + ')</th></tr>';
+    h += '<table class="summary"><caption>2. M/H breakdown</caption>';
+    h += '<tr><th rowspan="3">Item</th><th colspan="4">C&amp;I Design Part (' + esc(caseLabel) + ')</th>' +
+      '<th colspan="4">Telecom Design Part (' + esc(caseLabel) + ')</th></tr>';
     h += '<tr><td colspan="4" class="b red">' + verLabel + '</td><td colspan="4" class="b red">' + verLabel + '</td></tr>';
-    h += '<tr>' + ['내부', '외주', 'Total', '예가', '내부', '외주', 'Total', '예가']
+    h += '<tr>' + ['Internal', 'Outsourced', 'Total', 'Est. cost', 'Internal', 'Outsourced', 'Total', 'Est. cost']
       .map(function (t) { return '<th>' + t + '</th>'; }).join('') + '</tr>';
 
     [['M/H', function (o) { return [fmt(o.internal), fmt(o.external), fmt(o.total), fmt(o.external * rate)]; }],
      ['M/M', function (o) { return [f1(mmOf(o.internal)), f1(mmOf(o.external)), f1(o.mm), '-']; }],
-     ['투입 인원', function (o) { return [f1(headOf(o.internal)), f1(headOf(o.external)), f1(o.avg), '-']; }]
+     ['Manpower', function (o) { return [f1(headOf(o.internal)), f1(headOf(o.external)), f1(o.avg), '-']; }]
     ].forEach(function (r) {
       h += '<tr><td class="lbl">' + r[0] + '</td>' +
         r[1](ci).map(function (v) { return '<td>' + v + '</td>'; }).join('') +
@@ -334,9 +340,9 @@
     });
     h += '</table>';
 
-    h += '<div class="summary-note"><b>Note</b> &nbsp; Summary는 왼쪽 Master Control, Input 수정값, ' +
-      '산출기준 Unit M/H를 기준으로 즉시 재계산됩니다. 상세내역은 현재 Part 선택과 무관하게 ' +
-      'C&amp;I / 통신 전체를 각각 표시합니다.</div>';
+    h += '<div class="summary-note"><b>Note</b> &nbsp; The summary is recalculated immediately from ' +
+      'Master Control, the values on Edit Inputs and the Unit M/H on the calculation-standards tabs. ' +
+      'The breakdown always shows C&amp;I and Telecom in full, whatever Part is selected.</div>';
     el.innerHTML = h;
   }
 
@@ -344,45 +350,47 @@
   function renderOutput(el, part) {
     var t = m.partTotals(part);
     var rows = t.rows;
-    var title = part === 'ci' ? 'C&I설계 화공 FEED사업 M/H 산출서 (Rev.3)' : '통신설계 화공 FEED사업 M/H 산출서 (Rev.3)';
-    var ver = m.external_min === 'Yes' ? '[ 외주최소화 Ver. ]' : '[ 일반 Ver. ]';
+    var title = part === 'ci'
+      ? 'C&I Design - Petrochemical FEED Project M/H Calculation Sheet (Rev.3)'
+      : 'Telecom Design - Petrochemical FEED Project M/H Calculation Sheet (Rev.3)';
+    var ver = m.external_min === 'Yes' ? '[ Outsourcing Minimization Ver. ]' : '[ Standard Ver. ]';
     var rate = m.case_ === 'short' ? m.rate_short : m.rate_comp;
     var base = part === 'ci'
-      ? [['Total ICSS (DCS+ESD+F&G)+MMS IO 수량', m.nval('ci', 'A01_QTY'), 'Point'],
-         ['Total Instrument 수량', m.nval('ci', 'A02_QTY'), 'Set']]
-      : [['Telecom System 수량', m.nval('tel', 'A01_QTY'), 'Set'],
+      ? [['Total ICSS (DCS+ESD+F&G)+MMS IO quantity', m.nval('ci', 'A01_QTY'), 'Point'],
+         ['Total Instrument quantity', m.nval('ci', 'A02_QTY'), 'Set']]
+      : [['Telecom System quantity', m.nval('tel', 'A01_QTY'), 'Set'],
          ['Site Area', m.nval('tel', 'A02_QTY'), 'm2'],
-         ['Building 수량', m.nval('tel', 'A03_QTY'), 'Ea']];
+         ['Building quantity', m.nval('tel', 'A03_QTY'), 'Ea']];
 
     var h = '<div><span class="sheet-date">' + SHEET_DATE + '</span><div class="sheet-title">' + esc(title) + '</div></div>';
     h += '<div class="sheet-ver">' + esc(ver) + '</div>';
     h += '<div style="display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start;">';
-    h += '<div><div class="b" style="margin-bottom:4px;">산출 Base Data Summary</div><table class="basebox">';
+    h += '<div><div class="b" style="margin-bottom:4px;">Base Data Summary</div><table class="basebox">';
     base.forEach(function (b) {
       h += '<tr><td class="b">' + esc(b[0]) + '</td><td class="v">' + fmt(b[1]) + '</td><td class="b red">' + esc(b[2]) + '</td></tr>';
     });
     h += '</table></div>';
     h += '<div><div class="b" style="margin-bottom:4px;">Notes</div><div class="notesbox">' +
-      '왼쪽 Master Control의 외주최소화 값(No/Yes)이 Output 전체에 그대로 자동 반영됩니다.<br>' +
-      'Case(외주-단종 / 외주-종합) 선택에 따라 내부/외주 Unit M/H 배분이 달라집니다.</div></div>';
+      'The Outsourcing Minimization value (No/Yes) set in Master Control applies to the whole Output.<br>' +
+      'The Case (Outsourcing-Single / Outsourcing-Comprehensive) changes how Unit M/H is split between internal and outsourced work.</div></div>';
     h += '</div>';
     h += '<div class="projbar"><div class="k">PROJECT:</div><div class="v">' + esc(m.project || '') + '</div></div>';
-    h += '<div class="tablebanner">MAN-HOUR 산출 TABLE</div>';
+    h += '<div class="tablebanner">MAN-HOUR CALCULATION TABLE</div>';
 
     h += '<div class="scrollx"><table class="sheet" style="width:100%">';
     h += '<tr>' +
       '<th class="head-basic" rowspan="2">No.</th>' +
       '<th class="head-basic" rowspan="2">Activity</th>' +
-      '<th class="head-basic" rowspan="2">단위</th>' +
-      '<th class="head-basic" rowspan="2">수량</th>' +
-      '<th class="head-basic" rowspan="2">난이도</th>' +
-      '<th colspan="2" style="background:#BFE7F3">내부 M/H</th>' +
-      '<th colspan="2" style="background:#C6EFCE">외부 M/H</th>' +
+      '<th class="head-basic" rowspan="2">Unit</th>' +
+      '<th class="head-basic" rowspan="2">Qty</th>' +
+      '<th class="head-basic" rowspan="2">Difficulty</th>' +
+      '<th colspan="2" style="background:#BFE7F3">Internal M/H</th>' +
+      '<th colspan="2" style="background:#C6EFCE">External M/H</th>' +
       '<th colspan="2" style="background:#FFF2CC">Total</th></tr>';
     h += '<tr>' +
       '<th style="background:#BFE7F3">Unit M/H</th><th style="background:#BFE7F3">M/H</th>' +
       '<th style="background:#C6EFCE">Unit M/H</th><th style="background:#C6EFCE">M/H</th>' +
-      '<th style="background:#FFF2CC">M/H</th><th style="background:#FFF2CC">비고</th></tr>';
+      '<th style="background:#FFF2CC">M/H</th><th style="background:#FFF2CC">Remarks</th></tr>';
 
     rows.forEach(function (r, i) {
       h += '<tr class="' + (i % 2 ? 'odd' : '') + '">' +
@@ -390,7 +398,7 @@
         '<td>' + esc(r.activity) + '</td>' +
         '<td class="ctr">' + esc(r.unit) + '</td>' +
         '<td class="num">' + f1(r.qty) + '</td>' +
-        '<td class="ctr">' + esc(r.diff) + '</td>' +
+        '<td class="ctr">' + esc(MH.diffLabel(r.diff)) + '</td>' +
         '<td class="num">' + f1(r.iu) + '</td>' +
         '<td class="num">' + fmt(r.hec) + '</td>' +
         '<td class="num">' + f1(r.eu) + '</td>' +
@@ -400,38 +408,38 @@
     });
 
     h += '<tr class="total"><td colspan="2">Base M/H (1 M/M)</td><td class="num">' + fmt(m.base_mh) +
-      '</td><td class="ctr">M/H</td><td class="ctr">합계 M/H</td><td class="num" colspan="2">' + fmt(t.internal) +
+      '</td><td class="ctr">M/H</td><td class="ctr">Total M/H</td><td class="num" colspan="2">' + fmt(t.internal) +
       '</td><td class="num" colspan="2">' + fmt(t.external) + '</td><td class="num" colspan="2">' + fmt(t.total) + '</td></tr>';
-    h += '<tr class="b"><td colspan="2">설계기간</td><td class="num">' + f1(m.months) +
-      '</td><td class="ctr">개월</td><td class="ctr">합계 M/M</td><td class="num" colspan="2">' +
+    h += '<tr class="b"><td colspan="2">Design duration</td><td class="num">' + f1(m.months) +
+      '</td><td class="ctr">months</td><td class="ctr">Total M/M</td><td class="num" colspan="2">' +
       f1(m.base_mh ? t.internal / m.base_mh : 0) + '</td><td class="num" colspan="2">' +
       f1(m.base_mh ? t.external / m.base_mh : 0) + '</td><td class="num" colspan="2">' + f1(t.mm) + '</td></tr>';
-    h += '<tr class="b"><td colspan="2">외주 적용단가</td><td class="num">' + fmt(rate) +
-      '</td><td class="ctr">원</td><td class="ctr">평균 투입 인원</td><td class="num" colspan="2">' +
+    h += '<tr class="b"><td colspan="2">Outsourcing unit rate</td><td class="num">' + fmt(rate) +
+      '</td><td class="ctr">KRW</td><td class="ctr">Average manpower</td><td class="num" colspan="2">' +
       f1((m.base_mh && m.months) ? t.internal / m.base_mh / m.months : 0) + '</td><td class="num" colspan="2">' +
       f1((m.base_mh && m.months) ? t.external / m.base_mh / m.months : 0) + '</td><td class="num" colspan="2">' +
       f1(t.avg) + '</td></tr>';
-    h += '<tr><td colspan="4" class="b" style="background:#FFF2CC">외주 예가</td>' +
-      '<td colspan="7" class="num b red" style="background:#FFF2CC">' + fmt(t.external * rate) + ' 원</td></tr>';
+    h += '<tr><td colspan="4" class="b" style="background:#FFF2CC">Outsourcing estimated cost</td>' +
+      '<td colspan="7" class="num b red" style="background:#FFF2CC">' + fmt(t.external * rate) + ' KRW</td></tr>';
     h += '</table></div>';
     el.innerHTML = h;
   }
 
-  /* ================================================= OP1 / OP2 Excel 시트 */
+  /* =============================================== OP1 / OP2 Excel sheets */
   function sectionName(code) {
     var n = parseInt(String(code).replace('A', ''), 10);
     if (isNaN(n)) return 'OTHER';
     if (n <= 6) return '1  GENERAL';
     if (n <= 11) return '2  SPECIFICATION';
     if (n <= 14) return '3  CALCULATION';
-    if (n <= 20) return '4  구매관련 / DATA SHEET / MR & TBE';
+    if (n <= 20) return '4  PROCUREMENT / DATA SHEET / MR & TBE';
     if (n <= 31) return '5  DRAWING / INDEX / INTERFACE';
-    if (n <= 33) return '6  MTO & 타부서 INFORM';
+    if (n <= 33) return '6  MTO & INFORM TO OTHER DEPTS.';
     return '7  OTHERS';
   }
 
   function rowsForSheet(sheet) {
-    var c = sheet === 'OP2-단종' ? 'short' : sheet === 'OP2-종합' ? 'comp' : m.case_;
+    var c = sheet === 'OP2-Single' ? 'short' : sheet === 'OP2-Comprehensive' ? 'comp' : m.case_;
     return m.withCase(c, function () {
       return m.visible_outputs().map(function (o) { return m.row(o); });
     });
@@ -440,40 +448,42 @@
   function renderOp(el, sheet) {
     var rows = rowsForSheet(sheet);
     var isOp1 = sheet === 'OP1';
-    var title = m.part === 'ci' ? 'C&I설계 화공 FEED사업 M/H 산출서 (Rev.3)'
-      : m.part === 'tel' ? '통신설계 화공 FEED사업 M/H 산출서 (Rev.3)'
-        : 'C&I / Telecom FEED사업 M/H 산출서 (Rev.3)';
-    var ver = m.external_min === 'Yes' ? '[ 외주최소화 Ver. ]' : '[ 일반 Ver. ]';
+    var title = m.part === 'ci' ? 'C&I Design - Petrochemical FEED Project M/H Calculation Sheet (Rev.3)'
+      : m.part === 'tel' ? 'Telecom Design - Petrochemical FEED Project M/H Calculation Sheet (Rev.3)'
+        : 'C&I / Telecom FEED Project M/H Calculation Sheet (Rev.3)';
+    var ver = m.external_min === 'Yes' ? '[ Outsourcing Minimization Ver. ]' : '[ Standard Ver. ]';
 
     var h = '<div><span class="sheet-date">' + SHEET_DATE + '</span><div class="sheet-title">' + esc(title) + '</div></div>';
     h += '<div class="sheet-ver">' + esc(ver) + ' &nbsp;<span style="color:#172033;font-size:13px;">' + esc(sheet) + ' Sheet</span></div>';
 
     h += '<div style="display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start;">';
-    h += '<div><div class="b" style="margin-bottom:4px;">산출 Base Data Summary</div><table class="basebox">';
+    h += '<div><div class="b" style="margin-bottom:4px;">Base Data Summary</div><table class="basebox">';
     if (m.part === 'both' || m.part === 'ci') {
-      h += '<tr><td class="b">Total ICSS (DCS+ESD+F&G)+MMS IO 수량</td><td class="v">' +
-        fmt(m.nval('ci', 'A01_QTY')) + '</td><td class="red">Actual수량 기입</td></tr>';
-      h += '<tr><td class="b">Total Instrument 수량</td><td class="v">' +
-        fmt(m.nval('ci', 'A02_QTY')) + '</td><td>F&G Inst. 포함</td></tr>';
+      h += '<tr><td class="b">Total ICSS (DCS+ESD+F&G)+MMS IO quantity</td><td class="v">' +
+        fmt(m.nval('ci', 'A01_QTY')) + '</td><td class="red">Enter actual quantity</td></tr>';
+      h += '<tr><td class="b">Total Instrument quantity</td><td class="v">' +
+        fmt(m.nval('ci', 'A02_QTY')) + '</td><td>F&G Inst. included</td></tr>';
     }
     if (m.part === 'both' || m.part === 'tel') {
-      h += '<tr><td class="b">Telecom System 수량</td><td class="v">' +
+      h += '<tr><td class="b">Telecom System quantity</td><td class="v">' +
         fmt(m.nval('tel', 'A01_QTY')) + '</td><td>System Qty</td></tr>';
     }
     h += '</table></div>';
     h += '<div><div class="b" style="margin-bottom:4px;">Notes</div><div class="notesbox">' +
-      '1. FEED 산출 기준은 산출기준 탭의 Unit M/H와 Project Condition을 기준으로 적용합니다.<br>' +
-      '2. 섹션별 트리 구조로 Activity를 구분하고, OP1/OP2 결과를 동일 화면에서 검토합니다.</div></div>';
+      '1. The FEED calculation basis is the Unit M/H on the calculation-standards tabs together with the Project Conditions.<br>' +
+      '2. Activities are grouped into a section tree so the OP1 / OP2 results can be reviewed on one screen.</div></div>';
     h += '</div>';
     h += '<div class="projbar"><div class="k">PROJECT:</div><div class="v">' + esc(m.project || '') + '</div></div>';
-    h += '<div class="tablebanner">MAN-HOUR 산출 TABLE</div>';
+    h += '<div class="tablebanner">MAN-HOUR CALCULATION TABLE</div>';
 
     var cols = isOp1
-      ? ['No.', 'Part', 'Activity', '단위', '수량', '난이도', '내부 Unit', '외주 Unit', '내부 M/H', '외주 M/H', 'Total M/H', 'Remarks']
-      : ['No.', 'Part', 'Activity', '단위', '수량', '난이도', '내부 M/H', '외주 M/H', 'Total M/H', 'Remarks'];
+      ? ['No.', 'Part', 'Activity', 'Unit', 'Qty', 'Difficulty', 'Internal Unit', 'Outsourced Unit',
+         'Internal M/H', 'Outsourced M/H', 'Total M/H', 'Remarks']
+      : ['No.', 'Part', 'Activity', 'Unit', 'Qty', 'Difficulty', 'Internal M/H', 'Outsourced M/H',
+         'Total M/H', 'Remarks'];
 
     h += '<div class="scrollx"><table class="sheet" style="width:100%">';
-    h += '<tr><th class="head-basic" colspan="6">기본 정보</th>';
+    h += '<tr><th class="head-basic" colspan="6">Basic information</th>';
     if (isOp1) {
       h += '<th class="head-unit" colspan="2">Unit M/H</th><th class="head-mh" colspan="2">M/H</th>' +
         '<th class="head-unit" rowspan="2">Total M/H</th><th class="head-rem" rowspan="2">Remarks</th></tr>';
@@ -482,7 +492,7 @@
     }
     h += '<tr>';
     cols.forEach(function (name, i) {
-      if (i >= cols.length - (isOp1 ? 2 : 1)) return; // rowspan 으로 이미 그린 열
+      if (i >= cols.length - (isOp1 ? 2 : 1)) return; // already drawn via rowspan
       var cls = i < 6 ? 'head-basic' : (name.indexOf('Unit') >= 0 || name.indexOf('Total') >= 0 ? 'head-unit' : 'head-mh');
       h += '<th class="' + cls + '">' + esc(name) + '</th>';
     });
@@ -498,11 +508,11 @@
       }
       h += '<tr class="' + (no % 2 ? '' : 'odd') + '">' +
         '<td class="ctr">' + no + '</td>' +
-        '<td class="ctr">' + esc(partLabel(r.part)) + '</td>' +
+        '<td class="ctr">' + esc(partShort(r.part)) + '</td>' +
         '<td>' + esc(r.activity) + '</td>' +
         '<td class="ctr">' + esc(r.unit) + '</td>' +
         '<td class="num">' + money(r.qty, 1) + '</td>' +
-        '<td class="ctr">' + esc(r.diff) + '</td>';
+        '<td class="ctr">' + esc(MH.diffLabel(r.diff)) + '</td>';
       if (isOp1) {
         h += '<td class="num int">' + money(r.iu, 2) + '</td><td class="num int">' + money(r.eu, 2) + '</td>';
       }
@@ -523,37 +533,40 @@
     var mm = m.base_mh ? tot.total / m.base_mh : 0;
     var avg = m.months ? mm / m.months : 0;
     h += '<div class="footline">Base M/H: ' + fmt(m.base_mh) + ' &nbsp;|&nbsp; Total M/M: ' + f1(mm) +
-      ' &nbsp;|&nbsp; 설계기간: ' + fmt(m.months) + ' 개월 &nbsp;|&nbsp; 평균 투입인원: ' + f1(avg) + ' 명/month</div>';
+      ' &nbsp;|&nbsp; Design duration: ' + fmt(m.months) + ' months &nbsp;|&nbsp; Average manpower: ' +
+      f1(avg) + ' persons/month</div>';
     el.innerHTML = h;
   }
 
-  /* ==================================================== 산출기준_CI / TEL */
+  /* ========================================= Calculation standards CI/TEL */
   function renderStd(el, part) {
     var std = m.std[part];
     var keys = Object.keys(std);
     var isCi = part === 'ci';
     var diffs = isCi ? ['SPI', '상', '중', '하'] : ['상', '중', '하'];
-    var title = isCi ? 'C&I설계 화공 FEED사업 M/H 산출기준 (Rev.3)' : '통신설계 화공 FEED사업 M/H 산출기준 (Rev.3)';
-    var version = m.external_min === 'Yes' ? '외주최소화 Ver.' : '일반 Ver.';
+    var title = isCi
+      ? 'C&I Design - Petrochemical FEED Project M/H Calculation Standards (Rev.3)'
+      : 'Telecom Design - Petrochemical FEED Project M/H Calculation Standards (Rev.3)';
+    var version = m.external_min === 'Yes' ? 'Outsourcing Minimization Ver.' : 'Standard Ver.';
 
     var h = '<div><span class="sheet-date">' + SHEET_DATE + '</span><div class="sheet-title">' + esc(title) + '</div></div>';
     h += '<div class="std-topbar">' +
-      '<div class="k">산출기준 적용 Version\n(일반 vs 외주최소화 Ver.)</div>' +
+      '<div class="k">Applied standards version\n(Standard vs Outsourcing Minimization)</div>' +
       '<div class="v">' + esc(version) + '</div>' +
       '<div class="n"><b>Notes</b><br>' +
-      '1. Project 표준 난이도, Unit M/H 난이도 및 SPI 적용 여부를 기준으로 M/H를 산정합니다.<br>' +
-      '2. 노란색/초록색 숫자 셀은 직접 수정할 수 있으며 Summary/Output/OP에 즉시 반영됩니다.</div></div>';
+      '1. M/H is derived from the Project standard difficulty, the Unit M/H difficulty grade and whether SPI is applied.<br>' +
+      '2. The yellow / green number cells can be edited directly and feed straight into Summary, Output and OP.</div></div>';
 
     h += '<div class="scrollx"><table class="std" style="width:100%">';
     h += '<tr><th class="basic" rowspan="3">NO.</th><th class="basic" rowspan="3">Activity</th>' +
-      '<th class="basic" rowspan="3">단위</th>' +
-      '<th colspan="' + diffs.length + '">난이도별 Unit M/H</th>' +
-      '<th colspan="' + diffs.length + '">난이도별 Unit M/H</th>' +
-      '<th class="guide" rowspan="2">MAN-HOUR 산출 지침</th></tr>';
-    h += '<tr><th colspan="' + diffs.length + '">내부 Unit M/H</th>' +
-      '<th colspan="' + diffs.length + '">외주 Unit M/H</th></tr>';
-    h += '<tr>' + diffs.map(function (d) { return '<th>' + esc(d) + '</th>'; }).join('') +
-      diffs.map(function (d) { return '<th>' + esc(d) + '</th>'; }).join('') +
+      '<th class="basic" rowspan="3">Unit</th>' +
+      '<th colspan="' + diffs.length + '">Unit M/H by difficulty</th>' +
+      '<th colspan="' + diffs.length + '">Unit M/H by difficulty</th>' +
+      '<th class="guide" rowspan="2">MAN-HOUR CALCULATION GUIDELINES</th></tr>';
+    h += '<tr><th colspan="' + diffs.length + '">Internal Unit M/H</th>' +
+      '<th colspan="' + diffs.length + '">Outsourced Unit M/H</th></tr>';
+    h += '<tr>' + diffs.map(function (d) { return '<th>' + esc(MH.diffLabel(d)) + '</th>'; }).join('') +
+      diffs.map(function (d) { return '<th>' + esc(MH.diffLabel(d)) + '</th>'; }).join('') +
       '<th class="guide">Guide</th></tr>';
 
     keys.forEach(function (key, i) {
@@ -582,7 +595,7 @@
         if (raw === '') n = 0;
         else {
           n = parseFloat(raw.replace(/,/g, ''));
-          if (isNaN(n)) { toast('숫자만 입력할 수 있습니다.'); inp.focus(); return; }
+          if (isNaN(n)) { toast('Numbers only.'); inp.focus(); return; }
         }
         updateStdValue(inp.dataset.part, inp.dataset.key, inp.dataset.typ, inp.dataset.diff, n);
       });
@@ -590,7 +603,8 @@
     });
   }
 
-  /* 산출기준 Unit M/H 수정 → Output 행에 복사된 std 도 함께 갱신 (App.update_std_value) */
+  /* Editing a standard's Unit M/H also updates the std copy held on each
+   * Output row (App.update_std_value). */
   function updateStdValue(part, key, typ, diff, value) {
     var st = m.std[part][key];
     if (!st) return;
@@ -615,40 +629,40 @@
         body.split('\n').map(function (l) { return '<li>' + esc(l) + '</li>'; }).join('') + '</ul></div>';
     }
     var h = '<div class="guide">';
-    h += '<h1>M/H 산출 가이드</h1><div class="sub">첨부 #3-1 &nbsp;|&nbsp; Web Application Guide</div>';
-    h += '<h2>I. 각 시트(탭) 관련 안내</h2>';
-    [['1. Summary 시트', '본 프로그램의 Master Control 입력값 기준으로 C&I + 통신 M/H Summary를 표시합니다.\nPart, Case, 외주최소화, 내부/외부 비율, Base M/H, 설계기간, 단가가 Summary와 Output에 공통 반영됩니다.\n외주 예가, Total M/H, Total M/M, 평균 투입인원 확인용입니다.'],
-     ['2. 산출기준_CI / 산출기준_TEL 시트', '내부/외주 Unit M/H 및 난이도별 산출 기준을 확인하는 기준표입니다.\nActivity, 단위, 난이도, 내부/외부 Unit M/H, Guide 내용을 검토하는 용도입니다.\n노란색(내부) / 초록색(외주) 숫자 셀을 직접 수정하면 모든 결과가 즉시 다시 계산됩니다.'],
-     ['3. Input 수정 시트', 'M/H 산출을 위한 주요 입력값과 Project Condition을 입력합니다.\n노란색은 필수 입력, 파란색은 Master Control 연동, 초록색은 자동결과, 보라색은 선택 입력입니다.\n선택형 항목은 드롭다운에서 선택할 수 있습니다.'],
-     ['4. Output_CI / Output_TEL 시트', 'Part별 산출서 형식으로 Activity, Unit, Qty, 난이도, 내부/외부 M/H, Total M/H를 표시합니다.\n좌측 Master Control의 Case와 외주최소화 조건이 반영됩니다.'],
-     ['5. OP1 / OP2 시트', 'OP1은 Activity별 내부/외부 Unit 및 M/H 상세 확인용입니다.\nOP2-단종 및 OP2-종합은 보고용 M/H 내역 확인용이며, 각각 해당 Case 로 고정 계산됩니다.'],
-     ['6. Word Report 생성', '현재 화면의 Master Control, Summary, 주요 산출 정보를 기준으로 Word Report(.doc)를 내려받습니다.\n브라우저 다운로드 폴더에 저장되며 Microsoft Word 로 바로 열 수 있습니다.']
+    h += '<h1>M/H Calculation Guide</h1><div class="sub">Attachment #3-1 &nbsp;|&nbsp; Web Application Guide</div>';
+    h += '<h2>I. About each sheet (tab)</h2>';
+    [['1. Summary sheet', 'Shows the combined C&I + Telecom M/H summary for the values entered in Master Control.\nPart, Case, Outsourcing Minimization, the internal/external ratio, Base M/H, design duration and unit rates all feed both the Summary and the Output tabs.\nUse it to check the outsourcing estimate, Total M/H, Total M/M and average manpower.'],
+     ['2. Standards_CI / Standards_TEL sheets', 'The reference tables of internal and outsourced Unit M/H per difficulty grade.\nUse them to review the activity, unit, difficulty, internal/external Unit M/H and the guidance text.\nEditing a yellow (internal) or green (outsourced) number cell recalculates every result immediately.'],
+     ['3. Edit Inputs sheet', 'Where you enter the quantities and Project Conditions the calculation is built on.\nYellow is a required input, blue mirrors Master Control, green is an automatic result and purple is an optional selection.\nSelection items are chosen from a drop-down.'],
+     ['4. Output_CI / Output_TEL sheets', 'A per-Part calculation sheet showing activity, unit, quantity, difficulty, internal/external M/H and Total M/H.\nThe Case and Outsourcing Minimization settings from Master Control are applied.'],
+     ['5. OP1 / OP2 sheets', 'OP1 shows the internal and external Unit M/H and the resulting M/H for every activity.\nOP2-Single and OP2-Comprehensive are the reporting views, each fixed to its own Case regardless of the Case selected in Master Control.'],
+     ['6. Generate Word report', 'Downloads a Word report (.doc) built from the current Master Control values, summary and key calculation results.\nIt is saved to the browser download folder and opens directly in Microsoft Word.']
     ].forEach(function (x) { h += block(x[0], x[1]); });
 
-    h += '<h2>II. 각 Case 관련 안내</h2>';
-    [['1. 외주-단종 Case', '외부 수행분을 외주-단종 단가로 예가 산정합니다.\n내부 검토와 외주 수행을 구분하는 일반 FEED 산출에 사용합니다.'],
-     ['2. 외주-종합 Case', '외부 수행분을 외주-종합 단가로 예가 산정합니다.\n외주 업체가 복수 업무를 통합 수행하는 조건 검토에 사용합니다.']
+    h += '<h2>II. About each Case</h2>';
+    [['1. Outsourcing-Single Case', 'The externally performed share is priced at the Outsourcing-Single unit rate.\nUse it for ordinary FEED calculations that separate internal review from outsourced execution.'],
+     ['2. Outsourcing-Comprehensive Case', 'The externally performed share is priced at the Outsourcing-Comprehensive unit rate.\nUse it to study conditions where one subcontractor performs several disciplines together.']
     ].forEach(function (x) { h += block(x[0], x[1]); });
 
-    h += '<h2>III. 외주최소화 적용 안내</h2>';
-    [['1. 외주최소화 Yes', '내부/외부 M/H 비율을 75/25 기준으로 적용합니다.\nSummary, Output, OP, Word Report에 동일하게 반영됩니다.', false],
-     ['2. 외주최소화 No', '원본 산출기준의 내부/외주 Unit M/H 산정 결과를 기준으로 비율을 계산합니다.', false],
-     ['3. 원본 기준과 외주최소화', '원본 기준은 원본 Unit M/H 구조를 유지하는 방식입니다.\n외주최소화를 적용하려면 사용자 입력 비율을 사용합니다.', true]
+    h += '<h2>III. About Outsourcing Minimization</h2>';
+    [['1. Outsourcing Minimization - Yes', 'The internal/external M/H ratio is fixed at 75/25.\nThe same split applies to the Summary, Output, OP tabs and the Word report.', false],
+     ['2. Outsourcing Minimization - No', 'The ratio is derived from the internal and outsourced Unit M/H of the original calculation standards.', false],
+     ['3. Original basis vs Outsourcing Minimization', 'The original basis keeps the Unit M/H structure of the source standards.\nTo apply Outsourcing Minimization, use the user-entered ratio.', true]
     ].forEach(function (x) { h += block(x[0], x[1], x[2]); });
 
-    h += '<h2>IV. 사용 순서</h2>';
-    h += block('1. 기본 정보 입력', '좌측 Master Control에서 Project, Part, Case, Base M/H, 설계기간, 외주 단가를 입력합니다.');
-    h += block('2. Input 수정', 'Input 수정 탭에서 수량 및 선택 조건을 검토하고 필요한 값을 수정합니다.');
-    h += block('3. Output 확인 및 Word Report 생성', 'Summary, Output, OP 탭에서 결과를 확인한 후 Word Report를 생성합니다.');
+    h += '<h2>IV. Order of use</h2>';
+    h += block('1. Enter the basic information', 'In Master Control on the left, enter the Project, Part, Case, Base M/H, design duration and outsourcing unit rates.');
+    h += block('2. Edit the inputs', 'On the Edit Inputs tab, review the quantities and selection conditions and change whatever needs changing.');
+    h += block('3. Check the output and generate the report', 'Review the results on the Summary, Output and OP tabs, then generate the Word report.');
 
-    h += '<h2>V. 입력값 저장 안내</h2>';
-    h += block('1. 자동 저장', '입력값과 산출기준 수정값은 브라우저(localStorage)에 자동 저장되며, 다시 접속하면 그대로 복원됩니다.\n"저장값 불러오기"로 언제든 마지막 저장 상태를 다시 불러올 수 있습니다.');
-    h += block('2. 파일 내보내기 / 가져오기', '"입력값 내보내기"는 JSON 파일로 저장합니다.\n데스크톱 프로그램의 FEED_MH_Calculator_Last_Input.json 과 같은 형식이므로 서로 주고받을 수 있습니다.');
+    h += '<h2>V. About saving your inputs</h2>';
+    h += block('1. Automatic save', 'Your inputs and any edits to the calculation standards are saved to the browser (localStorage) automatically and restored the next time you open the page.\nUse "Load saved inputs" to return to the last saved state at any time.');
+    h += block('2. Export / import a file', '"Export inputs" saves a JSON file.\nIt uses the same format as the desktop program\'s FEED_MH_Calculator_Last_Input.json, so the two can exchange files.');
     h += '</div>';
     el.innerHTML = h;
   }
 
-  /* ============================================================ 상태 저장 */
+  /* =============================================================== state */
   function collectState() {
     return {
       project: m.project,
@@ -670,13 +684,13 @@
   function saveState(silent) {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(collectState()));
-      if (!silent) toast('현재 입력값을 브라우저에 저장했습니다.');
+      if (!silent) toast('Inputs saved in this browser.');
     } catch (e) {
-      if (!silent) toast('저장 실패: ' + e.message);
+      if (!silent) toast('Save failed: ' + e.message);
     }
   }
 
-  /* Python App.load_user_state() 와 동일한 복원 로직 */
+  /* Same restore logic as Python's App.load_user_state() */
   function applyState(data) {
     m.project = data.project || '';
     m.part = data.part || 'both';
@@ -707,7 +721,7 @@
           }
         });
       });
-      // Output 행 안에 복사되어 있는 std 도 같이 갱신
+      // refresh the std copy held on each Output row as well
       m.outputs.forEach(function (o) {
         if (!o.std) return;
         var table = m.std[o.part] || {};
@@ -730,16 +744,16 @@
     var raw;
     try { raw = localStorage.getItem(STORAGE_KEY); } catch (e) { raw = null; }
     if (!raw) {
-      if (showMsg) toast('저장된 입력값이 없습니다.');
+      if (showMsg) toast('No saved inputs found.');
       return false;
     }
     try {
       applyState(JSON.parse(raw));
       refreshAll();
-      if (showMsg) toast('저장된 입력값을 불러왔습니다.');
+      if (showMsg) toast('Saved inputs loaded.');
       return true;
     } catch (e) {
-      if (showMsg) toast('불러오기 실패: ' + e.message);
+      if (showMsg) toast('Load failed: ' + e.message);
       return false;
     }
   }
@@ -754,7 +768,7 @@
     a.click();
     document.body.removeChild(a);
     setTimeout(function () { URL.revokeObjectURL(url); }, 1500);
-    toast('현재 입력값을 JSON 파일로 저장했습니다.');
+    toast('Inputs exported as a JSON file.');
   }
 
   function importState(file) {
@@ -765,21 +779,21 @@
         applyState(data);
         refreshAll();
         saveState(true);
-        toast('선택한 입력값 파일을 불러왔습니다.');
+        toast('Input file loaded.');
       } catch (e) {
-        toast('가져오기 실패: ' + e.message);
+        toast('Import failed: ' + e.message);
       }
     };
     reader.readAsText(file, 'utf-8');
   }
 
   function resetState() {
-    if (!confirm('입력값을 초기화하시겠습니까?\n저장된 마지막 입력값도 삭제됩니다.')) return;
+    if (!confirm('Reset all inputs?\nThe last saved state will be deleted as well.')) return;
     try { localStorage.removeItem(STORAGE_KEY); } catch (e) { /* ignore */ }
     m = new MH.Model();
     writeControls();
     refreshAll();
-    toast('입력값을 초기화했습니다.');
+    toast('Inputs reset.');
   }
 
   /* ============================================================== Report */
@@ -809,20 +823,20 @@
     try {
       MHReport.download(reportData(), typeof HYUNDAI_LOGO_B64 !== 'undefined' ? HYUNDAI_LOGO_B64 : null,
         'FEED_MH_Report_Hyundai.doc');
-      toast('Word Report(.doc)를 내려받았습니다.');
+      toast('Word report (.doc) downloaded.');
     } catch (e) {
-      toast('Word Report 생성 실패: ' + e.message);
+      toast('Word report generation failed: ' + e.message);
     }
   }
 
-  /* ================================================================ 초기화 */
+  /* ================================================================ start-up */
   function bindControls() {
     ['mc-part', 'mc-case', 'mc-ratio'].forEach(function (id) {
       $(id).addEventListener('change', applyLeft);
     });
     $('mc-external').addEventListener('change', function () {
       if ($('mc-external').value === 'Yes') {
-        $('mc-ratio').value = '사용자 입력';
+        $('mc-ratio').value = 'User entered';
         $('mc-ip').value = '75.0';
         $('mc-ep').value = '25.0';
       }
@@ -838,7 +852,7 @@
       if (isNaN(v)) return;
       suppressRatioSync = true;
       $('mc-ep').value = f1(100 - v);
-      $('mc-ratio').value = '사용자 입력';
+      $('mc-ratio').value = 'User entered';
       suppressRatioSync = false;
     });
     $('mc-ep').addEventListener('input', function () {
@@ -847,13 +861,13 @@
       if (isNaN(v)) return;
       suppressRatioSync = true;
       $('mc-ip').value = f1(100 - v);
-      $('mc-ratio').value = '사용자 입력';
+      $('mc-ratio').value = 'User entered';
       suppressRatioSync = false;
     });
     $('mc-ip').addEventListener('change', applyLeft);
     $('mc-ep').addEventListener('change', applyLeft);
 
-    $('btn-recalc').addEventListener('click', function () { applyLeft(); toast('Output을 다시 계산했습니다.'); });
+    $('btn-recalc').addEventListener('click', function () { applyLeft(); toast('Output recalculated.'); });
     $('btn-save').addEventListener('click', function () { saveState(false); });
     $('btn-load').addEventListener('click', function () { loadState(true); });
     $('btn-export').addEventListener('click', exportState);

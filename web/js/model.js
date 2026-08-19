@@ -1,11 +1,32 @@
-/* FEED M/H Calculator - 계산 모델
- * FEED_MH_Calculator_V0_4_OPExcelGrid.py 의 Model 클래스를 그대로 옮긴 것입니다.
- * 계산 결과가 데스크톱 프로그램과 동일하도록 파이썬의 반올림(짝수 반올림) 규칙까지 맞춥니다. */
+/* FEED M/H Calculator - calculation model
+ * A direct port of the Model class in FEED_MH_Calculator_V0_4_OPExcelGrid.py.
+ * Python's rounding rules (banker's rounding) are reproduced as well, so the
+ * figures shown here are identical to the desktop program's. */
 (function (global) {
   'use strict';
 
-  var P = { ci: 'CI (계장)', tel: 'TEL (통신)', both: '전체' };
-  var REV = { '전체': 'both', 'CI (계장)': 'ci', 'TEL (통신)': 'tel' };
+  var P = { ci: 'C&I (Instrumentation)', tel: 'TEL (Telecom)', both: 'All' };
+  var REV = { 'All': 'both', 'C&I (Instrumentation)': 'ci', 'TEL (Telecom)': 'tel' };
+  /* Compact form for the Part column, which repeats on every table row. */
+  var P_SHORT = { ci: 'C&I', tel: 'TEL', both: 'All' };
+
+  /* Difficulty grades are kept in Korean inside the data because they are the
+   * lookup keys of every std entry's int/ext maps, shared with the desktop
+   * program's saved-state file. They are translated only for display. */
+  var DIFF_LABEL = {
+    '상': 'High', '중': 'Medium', '하': 'Low',
+    'SPI': 'SPI', 'SPI-내부': 'SPI-Internal', 'SPI-외부': 'SPI-External',
+    '외주-종합': 'Outsourcing-Comprehensive', '외주-단종': 'Outsourcing-Single'
+  };
+
+  /* 'SPI-외부 / 외주-종합' -> 'SPI-External / Outsourcing-Comprehensive' */
+  function diffLabel(v) {
+    if (v === null || v === undefined || v === '') return '';
+    return String(v).split(' / ').map(function (part) {
+      var t = part.trim();
+      return DIFF_LABEL[t] || t;
+    }).join(' / ');
+  }
 
   function num(v) {
     if (v === null || v === undefined || v === '' || v === '-') return 0.0;
@@ -13,16 +34,16 @@
     return isNaN(n) ? 0.0 : n;
   }
 
-  /* 파이썬의 round()/format() 은 정확한 .5 에서만 짝수 반올림(half-to-even)을 합니다.
-   * 배정밀도 x 가 소수 nd 자리에서 정확히 .5 가 되는 조건은 x * 2^(nd+1) 이 홀수 정수인 것이며,
-   * 2의 거듭제곱 곱셈은 오차가 없으므로 이 판정은 정확합니다.
-   * 그 외에는 toFixed() 가 실제 이진값을 올바르게 반올림하므로 파이썬과 결과가 같습니다. */
+  /* Python's round()/format() break ties to even, but only on an exact .5.
+   * A double x is exactly .5 at nd decimals iff x * 2^(nd+1) is an odd integer,
+   * and multiplying by a power of two is error-free, so this test is exact.
+   * Otherwise toFixed() rounds the true binary value correctly, matching Python. */
   function isTie(v, nd) {
     var t = v * Math.pow(2, nd + 1);
     return isFinite(t) && Number.isInteger(t) && Math.abs(t % 2) === 1;
   }
 
-  // 소수 nd 자리 문자열 (파이썬 format 과 동일한 반올림)
+  // Fixed-point string with nd decimals, rounded the way Python's format() does
   function toFixedPy(x, nd) {
     if (!isFinite(x)) return String(x);
     var neg = x < 0;
@@ -43,7 +64,7 @@
     return (neg && parseFloat(s) !== 0 ? '-' : '') + s;
   }
 
-  // 파이썬 round(x, nd) 와 동일
+  // Equivalent to Python's round(x, nd)
   function pyRound(x, nd) {
     nd = nd || 0;
     if (!isFinite(x)) return x;
@@ -137,6 +158,8 @@
     this.recalc();
   };
 
+  /* Difficulty grades stay in Korean here on purpose - they are the keys of the
+   * std int/ext tables (see DIFF_LABEL above). diffLabel() renders them. */
   Model.prototype.compute_diffs = function () {
     var self = this;
     var gp = this.val('ci', 'C01_SEL');
@@ -247,18 +270,20 @@
 
   Model.prototype.row = function (o) {
     var r = this.raw_row(o);
-    // 외주최소화/사용자 입력 비율은 최우선: Total M/H를 내부/외부 비율로 배분
+    // Outsourcing Minimization / user-entered ratio wins: split Total M/H by the ratio
     if (this.ratio_mode === 'custom') {
       var p = this.pct();
       r.hec = r.total * p.ip / 100;
       r.ext = r.total * p.ep / 100;
       return r;
     }
-    // 외주-종합 Case: 원본 Excel OP1의 Case3 로직을 반영
-    // Case3 Internal Unit = 내부 Unit * (1 - GEC/Internal ratio - 종합전환 ratio)
-    // Case3 External Unit = 외부 Unit * (1 - 외주감축 ratio) + 내부 Unit * 종합전환 ratio / 배부모수
-    // GEC Unit = 내부 Unit * GEC/Internal ratio / 배부모수
-    // 화면에 GEC 별도 열이 없으므로 GEC M/H를 외부/종합 수행분에 포함하여 Total을 맞춥니다.
+    // Outsourcing-Comprehensive case: mirrors the Case3 logic of the original Excel OP1.
+    // Case3 Internal Unit = internal Unit * (1 - GEC/Internal ratio - comprehensive-conversion ratio)
+    // Case3 External Unit = external Unit * (1 - outsourcing-reduction ratio)
+    //                       + internal Unit * comprehensive-conversion ratio / allocation divisor
+    // GEC Unit = internal Unit * GEC/Internal ratio / allocation divisor
+    // There is no separate GEC column on screen, so GEC M/H is folded into the
+    // external / comprehensive share to keep the Total right.
     if (this.case_ === 'comp') {
       var q = r.qty, iu = r.iu, eu = r.eu;
       var gec_ratio, comp_ratio, ext_reduce, denom;
@@ -295,7 +320,7 @@
     }
   };
 
-  /* 현재 Part 필터를 잠시 바꿔서 계산한 뒤 원래대로 되돌립니다. */
+  /* Run fn with the Part filter temporarily switched, then restore it. */
   Model.prototype.withPart = function (part, fn) {
     var old = this.part;
     this.part = part;
@@ -308,7 +333,7 @@
     try { return fn(); } finally { this.case_ = old; }
   };
 
-  /* 지정 Part 의 M/H 합계와 M/M, 평균 투입인원 */
+  /* M/H totals, M/M and average manpower for the given Part */
   Model.prototype.partTotals = function (part) {
     var self = this;
     return this.withPart(part, function () {
@@ -322,7 +347,7 @@
   };
 
   global.MH = {
-    P: P, REV: REV, num: num, fmt: fmt, f1: f1, money: money, pyRound: pyRound,
-    toFixedPy: toFixedPy, Model: Model
+    P: P, P_SHORT: P_SHORT, REV: REV, num: num, fmt: fmt, f1: f1, money: money, pyRound: pyRound,
+    toFixedPy: toFixedPy, DIFF_LABEL: DIFF_LABEL, diffLabel: diffLabel, Model: Model
   };
 })(window);

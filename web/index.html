@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="ko">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -19,24 +19,24 @@
   <aside class="master">
     <img id="logo" class="logo" alt="HYUNDAI ENGINEERING">
     <h2>MASTER CONTROL</h2>
-    <p class="hint">왼쪽 Master 값을 기준으로 Input 공통항목과 Output이 자동 연동됩니다.</p>
+    <p class="hint">The shared Input items and every Output tab follow the Master values set here.</p>
 
     <label for="mc-part">Part</label>
     <select id="mc-part">
-      <option>전체</option><option>CI (계장)</option><option>TEL (통신)</option>
+      <option>All</option><option>C&amp;I (Instrumentation)</option><option>TEL (Telecom)</option>
     </select>
 
     <label for="mc-case">Case</label>
     <select id="mc-case">
-      <option>외주-단종</option><option>외주-종합</option>
+      <option>Outsourcing-Single</option><option>Outsourcing-Comprehensive</option>
     </select>
 
-    <label for="mc-ratio">비율 적용 방식</label>
+    <label for="mc-ratio">Ratio basis</label>
     <select id="mc-ratio">
-      <option>원본 기준</option><option>사용자 입력</option>
+      <option>Original basis</option><option>User entered</option>
     </select>
 
-    <label for="mc-external">외주최소화</label>
+    <label for="mc-external">Outsourcing Minimization</label>
     <select id="mc-external">
       <option>No</option><option>Yes</option>
     </select>
@@ -47,32 +47,32 @@
     <label for="mc-base">Base M/H per 1 M/M</label>
     <input type="text" id="mc-base" inputmode="decimal">
 
-    <label for="mc-months">설계기간 개월</label>
+    <label for="mc-months">Design duration (months)</label>
     <input type="text" id="mc-months" inputmode="decimal">
 
-    <label for="mc-rate-short">외주-단종 단가</label>
+    <label for="mc-rate-short">Outsourcing-Single unit rate</label>
     <input type="text" id="mc-rate-short" inputmode="decimal">
 
-    <label for="mc-rate-comp">외주-종합 단가</label>
+    <label for="mc-rate-comp">Outsourcing-Comprehensive unit rate</label>
     <input type="text" id="mc-rate-comp" inputmode="decimal">
 
-    <label for="mc-ip">내부 %</label>
+    <label for="mc-ip">Internal %</label>
     <input type="text" id="mc-ip" inputmode="decimal">
 
-    <label for="mc-ep">외부 %</label>
+    <label for="mc-ep">External %</label>
     <input type="text" id="mc-ep" inputmode="decimal">
 
-    <button class="btn accent gap" id="btn-recalc">Output 재계산</button>
-    <button class="btn accent" id="btn-save">입력값 저장</button>
-    <button class="btn accent" id="btn-load">저장값 불러오기</button>
-    <button class="btn" id="btn-export">입력값 내보내기</button>
-    <button class="btn" id="btn-import">입력값 가져오기</button>
+    <button class="btn accent gap" id="btn-recalc">Recalculate output</button>
+    <button class="btn accent" id="btn-save">Save inputs</button>
+    <button class="btn accent" id="btn-load">Load saved inputs</button>
+    <button class="btn" id="btn-export">Export inputs</button>
+    <button class="btn" id="btn-import">Import inputs</button>
     <input type="file" id="file-import" accept=".json,application/json" hidden>
-    <button class="btn" id="btn-reset">초기화</button>
-    <button class="btn accent gap" id="btn-report">Word Report 생성</button>
-    <button class="btn" id="btn-print">현재 탭 인쇄 / PDF 저장</button>
+    <button class="btn" id="btn-reset">Reset</button>
+    <button class="btn accent gap" id="btn-report">Generate Word report</button>
+    <button class="btn" id="btn-print">Print current tab / save as PDF</button>
 
-    <p class="note">외주최소화는 왼쪽 Master Control에서만 변경합니다. Input 수정 탭의 파란색 Master연동 행은 왼쪽 값이 그대로 표시됩니다. 초록색 자동결과는 선택값에 따라 즉시 계산되어 표시됩니다.</p>
+    <p class="note">Outsourcing Minimization is changed here in Master Control only. The blue Master-linked row on the Edit Inputs tab simply mirrors the value set here, and the green auto-result rows are recalculated from your selections as you go.</p>
   </aside>
 
   <!-- ================= TABS ================= -->
