@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
-  FEED M/H Calculator - single-file web application
-  ================================================
+  M/H Calculator - single-file web application
+  ===========================================
   Everything this page needs is inside this one file: styles, calculation model,
   report generator and base data (including the logo, as a base64 data URI).
   There are no external stylesheets, scripts, fonts, images or network calls, so
@@ -14,6 +14,8 @@
     <body>               Master Control panel + 10 tab panels
     GENERATED DATA       Input items, Output activities, calculation standards, logo
     MH (model)           port of the Model class of FEED_MH_Calculator_V0_4_OPExcelGrid.py
+                         (the desktop program's filename - the calculation itself
+                          is not specific to any project stage)
     MHReport             Word (.doc) report generation
     app                  tab rendering, input handling, state save/restore
 
@@ -24,9 +26,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>C&amp;I / Telecom FEED M/H Calculator V.0.4</title>
+<title>C&amp;I / Telecom M/H Calculator V.0.4</title>
 <style>
-/* FEED M/H Calculator - web styles
+/* M/H Calculator - web styles
    Reuses the colour palette of the desktop (Tkinter) program and its
    Excel-style table formatting. */
 :root {
@@ -293,8 +295,8 @@ table.phase input.pct {
   border: 1px solid #B9C7D6; border-radius: 3px; background: #fff; color: inherit;
 }
 table.phase input.pct:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
-table.phase td.p-feed { background: var(--yellow); }
-table.phase td.p-det { background: var(--green); }
+table.phase td.p-one { background: var(--yellow); }
+table.phase td.p-two { background: var(--green); }
 table.phase td.p-mix { background: var(--purple); }
 td.nowrap, .nowrap { white-space: nowrap; }
 .phase-note {
@@ -360,7 +362,7 @@ table.std td.vext { background: var(--green); }
 <body>
 
 <div class="app-title">
-  <span>C&amp;I / Telecom FEED M/H Calculator V.0.4 / 2026-08-11</span>
+  <span>C&amp;I / Telecom M/H Calculator V.0.4 / 2026-08-11</span>
   <span class="ver">HYUNDAI ENGINEERING</span>
 </div>
 
@@ -398,18 +400,24 @@ table.std td.vext { background: var(--green); }
     <label for="mc-base">Base M/H per 1 M/M</label>
     <input type="text" id="mc-base" inputmode="decimal">
 
+    <label for="mc-p1-name">Phase 1 name</label>
+    <input type="text" id="mc-p1-name" placeholder="e.g. FEED, Bid, Stage 1">
+
+    <label for="mc-p2-name">Phase 2 name</label>
+    <input type="text" id="mc-p2-name" placeholder="e.g. Detail Engineering, Execution">
+
     <label for="mc-phase">Phase view</label>
     <select id="mc-phase">
       <option value="all">All phases</option>
-      <option value="feed">FEED only</option>
-      <option value="det">Detail engineering only</option>
+      <option value="p1">Phase 1 only</option>
+      <option value="p2">Phase 2 only</option>
     </select>
 
-    <label for="mc-months">FEED duration (months)</label>
+    <label for="mc-months" id="lbl-months">Phase 1 duration (months)</label>
     <input type="text" id="mc-months" inputmode="decimal">
 
-    <label for="mc-months-det">Detail engineering duration (months)</label>
-    <input type="text" id="mc-months-det" inputmode="decimal">
+    <label for="mc-months-2" id="lbl-months-2">Phase 2 duration (months)</label>
+    <input type="text" id="mc-months-2" inputmode="decimal">
 
     <label for="mc-rate-short">Outsourcing-Single unit rate</label>
     <input type="text" id="mc-rate-short" inputmode="decimal">
@@ -472,7 +480,7 @@ var HYUNDAI_LOGO_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAJcAAAAeCAYAAAAhIIxpAAAAAXNSR0IA
 <!-- ===== END GENERATED DATA ===== -->
 
 <script>
-/* FEED M/H Calculator - calculation model
+/* M/H Calculator - calculation model
  * A direct port of the Model class in FEED_MH_Calculator_V0_4_OPExcelGrid.py.
  * Python's rounding rules (banker's rounding) are reproduced as well, so the
  * figures shown here are identical to the desktop program's. */
@@ -585,12 +593,16 @@ var HYUNDAI_LOGO_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAJcAAAAeCAYAAAAhIIxpAAAAAXNSR0IA
     this.rate_comp = 39000;
     this.internal_pct = 0;
     this.external_pct = 0;
-    /* Phase split: percentage of each activity's M/H performed during FEED.
-     * 100 everywhere = the whole scope sits in FEED, which is the behaviour of
-     * the calculator before phases existed. */
+    /* Phase split: percentage of each activity's M/H performed in phase 1.
+     * 100 everywhere = the whole scope sits in phase 1, which is the behaviour
+     * of the calculator before phases existed.
+     * The phases are deliberately unnamed by default - the same calculation is
+     * used for FEED, for detail engineering and for bid estimates - so the two
+     * names are the user's to set. */
     this.phase_split = this.outputs.map(function () { return 100; });
+    this.phase_names = ['Phase 1', 'Phase 2'];
     this.phase_view = 'all';
-    this.months_det = 0;
+    this.months_2 = 0;
     this.sync_common();
     this.recalc();
   }
@@ -804,10 +816,18 @@ var HYUNDAI_LOGO_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAJcAAAAeCAYAAAAhIIxpAAAAAXNSR0IA
   };
 
   /* ---------------------------------------------------------------- phases
-   * A project may run FEED and detail engineering back to back, with only part
-   * of the scope delivered during FEED. Each activity carries a FEED share
-   * (0-100%); the detail-phase figure is the deferred remainder, priced with
-   * the same Unit M/H, so FEED + Detail always reconciles to the full total. */
+   * A project may run in two stages with only part of the scope delivered in
+   * the first - FEED then detail engineering, a bid stage then execution, or
+   * any other pair. Each activity carries a phase 1 share (0-100%); the phase 2
+   * figure is the deferred remainder, priced with the same Unit M/H, so the two
+   * phases always reconcile to the full total. */
+
+  // The user's name for a phase view ('all' | 'p1' | 'p2').
+  Model.prototype.phaseName = function (view) {
+    if (view === 'p1') return this.phase_names[0] || 'Phase 1';
+    if (view === 'p2') return this.phase_names[1] || 'Phase 2';
+    return 'All phases';
+  };
 
   // Fraction of an activity's M/H that belongs to the requested phase view.
   Model.prototype.phaseShare = function (idx, view) {
@@ -815,7 +835,7 @@ var HYUNDAI_LOGO_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAJcAAAAeCAYAAAAhIIxpAAAAAXNSR0IA
     if (view === 'all') return 1;
     var p = num(this.phase_split[idx] === undefined ? 100 : this.phase_split[idx]);
     p = Math.min(100, Math.max(0, p));
-    return view === 'feed' ? p / 100 : 1 - p / 100;
+    return view === 'p1' ? p / 100 : 1 - p / 100;
   };
 
   Model.prototype.setPhaseShare = function (idx, pct) {
@@ -824,9 +844,9 @@ var HYUNDAI_LOGO_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAJcAAAAeCAYAAAAhIIxpAAAAAXNSR0IA
 
   // Duration in months covered by a phase view ('all' spans the whole programme).
   Model.prototype.phaseMonths = function (view) {
-    if (view === 'feed') return num(this.months);
-    if (view === 'det') return num(this.months_det);
-    return num(this.months) + num(this.months_det);
+    if (view === 'p1') return num(this.months);
+    if (view === 'p2') return num(this.months_2);
+    return num(this.months) + num(this.months_2);
   };
 
   /* One output row scaled to a phase. A share of exactly 1 skips the
@@ -883,7 +903,7 @@ var HYUNDAI_LOGO_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAJcAAAAeCAYAAAAhIIxpAAAAAXNSR0IA
 </script>
 
 <script>
-/* FEED M/H Calculator - Word report generation
+/* M/H Calculator - Word report generation
  * Builds the same structure as create_word_report() in report_utils.py - cover,
  * Executive Summary, cost estimate, charts, Activity detail, calculation
  * standards and review comments - as HTML, downloaded as a .doc file.
@@ -981,17 +1001,17 @@ var HYUNDAI_LOGO_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAJcAAAAeCAYAAAAhIIxpAAAAAXNSR0IA
     if (logoB64) h += '<img src="data:image/png;base64,' + logoB64 + '" width="150" alt="HYUNDAI ENGINEERING">';
     else h += '<span style="font-size:14pt;font-weight:bold;color:' + HYUNDAI_BLUE + ';">HYUNDAI ENGINEERING</span>';
     h += '</td><td style="width:60%;text-align:right;vertical-align:middle;">';
-    h += '<span style="font-size:18pt;font-weight:bold;color:' + DARK_BLUE + ';">FEED M/H Calculation Report</span><br>';
+    h += '<span style="font-size:18pt;font-weight:bold;color:' + DARK_BLUE + ';">M/H Calculation Report</span><br>';
     h += '<span style="font-size:9pt;">Control &amp; Instrumentation / Telecommunication</span>';
     h += '</td></tr></table>';
 
     h += table(['Item', 'Detail', 'Item', 'Detail'], [
-      ['Project', String(project), 'Prepared with', 'FEED M/H Calculator V0.4'],
+      ['Project', String(project), 'Prepared with', 'M/H Calculator V0.4'],
       ['Outsourcing Minimization', String(data.external_min || 'No'), 'Base / Duration',
        fmt(base) + ' M/H per M/M / ' + fmt(months) + ' months'],
       ['Outsourcing unit rate',
        'Single ' + fmt(data.rate_short) + ' KRW / Comprehensive ' + fmt(data.rate_comp) + ' KRW',
-       'Reporting scope', 'C&I + Telecom FEED Engineering M/H']
+       'Reporting scope', 'C&I + Telecom Engineering M/H']
     ], ['left', 'left', 'left', 'left'], ['14%', '36%', '14%', '36%']);
 
     // 1. Executive Summary
@@ -1014,18 +1034,20 @@ var HYUNDAI_LOGO_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAJcAAAAeCAYAAAAhIIxpAAAAAXNSR0IA
     // Phase allocation - only meaningful once some scope is deferred
     var ph = data.phases;
     if (ph && ph.deferred) {
-      h += heading('1.1 Phase allocation - FEED vs detail engineering', 2);
+      var n1 = (ph.names && ph.names[0]) || 'Phase 1';
+      var n2 = (ph.names && ph.names[1]) || 'Phase 2';
+      h += heading('1.1 Phase allocation - ' + n1 + ' vs ' + n2, 2);
       h += table(['Phase', 'Duration', 'Internal M/H', 'Outsourced M/H', 'Total M/H', 'Total M/M', 'Average manpower'],
-        [['FEED', ph.feed], ['Detail engineering', ph.det], ['Whole programme', ph.all]].map(function (x) {
+        [[n1, ph.p1], [n2, ph.p2], ['Whole programme', ph.all]].map(function (x) {
           var o = x[1];
           return [x[0], o.months ? fmt(o.months, 1) + ' months' : '-',
                   fmt(o.internal), fmt(o.external), fmt(o.total), fmt(o.mm, 1),
                   o.months ? fmt(o.mm / o.months, 1) : '-'];
         }), ['left', 'right', 'right', 'right', 'right', 'right', 'right']);
       h += noteBox('Phase split basis', [
-        ph.deferred + ' of ' + ph.count + ' activities are wholly or partly deferred to detail engineering.',
-        'Detail-phase M/H is the deferred remainder priced with the same Unit M/H, so FEED and detail add back to the whole-programme total.',
-        'The standards tables are written for FEED, so the detail figure states deferred scope rather than a detail-engineering estimate.'
+        ph.deferred + ' of ' + ph.count + ' activities are wholly or partly deferred to ' + n2 + '.',
+        n2 + ' M/H is the deferred remainder priced with the same Unit M/H, so the two phases add back to the whole-programme total.',
+        'The standards tables carry one set of Unit M/H, so the ' + n2 + ' figure states deferred scope rather than a separately estimated stage.'
       ]);
     }
 
@@ -1036,7 +1058,7 @@ var HYUNDAI_LOGO_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAJcAAAAeCAYAAAAhIIxpAAAAAXNSR0IA
         '% internal and ' + fmt(pct(total.external, totalMh), 1) + '% outsourced.',
       bigger + ' carries the larger share; the supporting detail is set out in the per-activity tables.',
       'Applying Outsourcing Minimization changes the internal/outsourced split, so the outsourcing estimate and the staffing plan should be reviewed together.',
-      'This report covers the main FEED-stage scope: technical document review, data sheets, drawings, MTO/inform and 3D/SPI/CER work.'
+      'This report covers the main engineering scope: technical document review, data sheets, drawings, MTO/inform and 3D/SPI/CER work.'
     ]);
 
     // 2. charts
@@ -1089,10 +1111,10 @@ var HYUNDAI_LOGO_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAJcAAAAeCAYAAAAhIIxpAAAAAXNSR0IA
       'For high-quantity items the reliability of the entered quantity drives the total M/H directly, so final quantities must be confirmed before pricing.',
       'For heavily outsourced scope, the calculation conditions, outsourcing scope and deliverable level should be defined clearly to reduce variance in the estimate.',
       'The selected Project Conditions feed the difficulty grades and the calculation basis, so they must agree with the ITB and the client requirement review.',
-      'This report is for FEED-stage M/H review; the calculation standards and quantities must be revisited on conversion to EPC or at the start of detailed design.'
+      'This report is for M/H estimate review; the calculation standards and quantities must be revisited whenever the scope, stage or schedule changes.'
     ], '#FFF8E6');
 
-    h += '<p style="text-align:center;font-size:8pt;color:#666666;margin-top:18px;">Hyundai Engineering FEED M/H Calculator | Generated Report</p>';
+    h += '<p style="text-align:center;font-size:8pt;color:#666666;margin-top:18px;">Hyundai Engineering M/H Calculator | Generated Report</p>';
     h += '</div>';
     return h;
   }
@@ -1100,7 +1122,7 @@ var HYUNDAI_LOGO_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAJcAAAAeCAYAAAAhIIxpAAAAAXNSR0IA
   function fullDocument(data, logoB64) {
     return '<html xmlns:o="urn:schemas-microsoft-com:office:office" ' +
       'xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">' +
-      '<head><meta charset="utf-8"><title>FEED M/H Calculation Report</title>' +
+      '<head><meta charset="utf-8"><title>M/H Calculation Report</title>' +
       '<style>@page{size:A4;margin:1.4cm;} body{font-family:"Malgun Gothic",sans-serif;}</style>' +
       '</head><body>' + buildHtml(data, logoB64) + '</body></html>';
   }
@@ -1111,7 +1133,7 @@ var HYUNDAI_LOGO_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAJcAAAAeCAYAAAAhIIxpAAAAAXNSR0IA
     var url = URL.createObjectURL(blob);
     var a = document.createElement('a');
     a.href = url;
-    a.download = filename || 'FEED_MH_Report_Hyundai.doc';
+    a.download = filename || 'MH_Report_Hyundai.doc';
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -1131,14 +1153,15 @@ var HYUNDAI_LOGO_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAJcAAAAeCAYAAAAhIIxpAAAAAXNSR0IA
 </script>
 
 <script>
-/* FEED M/H Calculator - screen layout and event handling
+/* M/H Calculator - screen layout and event handling
  * A web port of the tab structure and rendering of the desktop App class. */
 (function () {
   'use strict';
 
   var num = MH.num, fmt = MH.fmt, f1 = MH.f1, money = MH.money;
   var SHEET_DATE = '2026-08-11';
-  var STORAGE_KEY = 'FEED_MH_Calculator_Last_Input';
+  var STORAGE_KEY = 'MH_Calculator_Last_Input';
+  var LEGACY_STORAGE_KEY = 'FEED_MH_Calculator_Last_Input';   // read once, for state saved before the rename
 
   var TABS = [
     { id: 'tab-input', label: 'Edit Inputs', render: renderInput },
@@ -1180,8 +1203,7 @@ var HYUNDAI_LOGO_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAJcAAAAeCAYAAAAhIIxpAAAAAXNSR0IA
   // Compact label for the Part column of the Input / OP tables
   function partShort(p) { return MH.P_SHORT[p] || p; }
 
-  var PHASE_LABEL = { all: 'All phases', feed: 'FEED', det: 'Detail engineering' };
-  function phaseLabel(v) { return PHASE_LABEL[v || 'all']; }
+  function phaseLabel(v) { return m.phaseName(v || 'all'); }
 
   /* In a phase-filtered sheet the M/H is a share of Unit M/H x Qty, so the
    * share is spelled out in the otherwise empty Remarks column - a reviewer
@@ -1194,7 +1216,7 @@ var HYUNDAI_LOGO_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAJcAAAAeCAYAAAAhIIxpAAAAAXNSR0IA
   }
 
   /* Banner shown on the sheets whenever the view is limited to one phase, so a
-   * printed FEED-only sheet can never be mistaken for the full scope. */
+   * printed single-phase sheet can never be mistaken for the full scope. */
   function phaseBanner() {
     if ((m.phase_view || 'all') === 'all') return '';
     var months = m.phaseMonths(m.phase_view);
@@ -1213,8 +1235,10 @@ var HYUNDAI_LOGO_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAJcAAAAeCAYAAAAhIIxpAAAAAXNSR0IA
       project: $('mc-project').value,
       base: $('mc-base').value,
       months: $('mc-months').value,
-      months_det: $('mc-months-det').value,
+      months_2: $('mc-months-2').value,
       phase: $('mc-phase').value,
+      p1_name: $('mc-p1-name').value,
+      p2_name: $('mc-p2-name').value,
       rate_short: $('mc-rate-short').value,
       rate_comp: $('mc-rate-comp').value,
       ip: $('mc-ip').value,
@@ -1232,8 +1256,12 @@ var HYUNDAI_LOGO_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAJcAAAAeCAYAAAAhIIxpAAAAAXNSR0IA
     m.project = v.project;
     m.base_mh = num(v.base);
     m.months = num(v.months);
-    m.months_det = num(v.months_det);
+    m.months_2 = num(v.months_2);
     m.phase_view = v.phase;
+    m.phase_names = [
+      (v.p1_name || '').trim() || 'Phase 1',
+      (v.p2_name || '').trim() || 'Phase 2'
+    ];
     m.rate_short = num(v.rate_short);
     m.rate_comp = num(v.rate_comp);
     if (m.external_min === 'Yes') m.ratio_mode = 'custom';
@@ -1244,8 +1272,20 @@ var HYUNDAI_LOGO_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAJcAAAAeCAYAAAAhIIxpAAAAAXNSR0IA
     }
     m.sync_common();
     m.recalc();
+    syncPhaseLabels();
     refreshAll();
     saveState(true);
+  }
+
+  /* The phase names are the user's, so every control that mentions a phase is
+   * relabelled from them rather than carrying a fixed stage name. Called from
+   * both writeControls() and applyLeft(), so renaming takes effect at once. */
+  function syncPhaseLabels() {
+    $('lbl-months').textContent = m.phase_names[0] + ' duration (months)';
+    $('lbl-months-2').textContent = m.phase_names[1] + ' duration (months)';
+    var opts = $('mc-phase').options;
+    opts[1].text = m.phase_names[0] + ' only';
+    opts[2].text = m.phase_names[1] + ' only';
   }
 
   /* Same behaviour as Python's App.apply_user_state_to_vars() */
@@ -1257,8 +1297,11 @@ var HYUNDAI_LOGO_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAJcAAAAeCAYAAAAhIIxpAAAAAXNSR0IA
     $('mc-project').value = String(m.project || '');
     $('mc-base').value = String(m.base_mh);
     $('mc-months').value = String(m.months);
-    $('mc-months-det').value = String(m.months_det);
+    $('mc-months-2').value = String(m.months_2);
+    $('mc-p1-name').value = m.phase_names[0];
+    $('mc-p2-name').value = m.phase_names[1];
     $('mc-phase').value = m.phase_view || 'all';
+    syncPhaseLabels();
     $('mc-rate-short').value = String(m.rate_short);
     $('mc-rate-comp').value = String(m.rate_comp);
     $('mc-ip').value = f1(m.internal_pct);
@@ -1455,10 +1498,10 @@ var HYUNDAI_LOGO_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAJcAAAAeCAYAAAAhIIxpAAAAAXNSR0IA
   }
 
   /* ============================================================ Phase Split */
-  /* Which deliverables are produced during FEED and which are deferred to
-   * detail engineering. Each activity carries a FEED share; the remainder is
-   * the detail-phase scope. Rows are addressed by position because four C&I
-   * codes (A17-A20) appear twice in the output list. */
+  /* Which deliverables belong to phase 1 and which are deferred to phase 2.
+   * Each activity carries a phase 1 share; the remainder is phase 2 scope.
+   * Rows are addressed by position because four C&I codes (A17-A20) appear
+   * twice in the output list. */
   function renderPhase(el) {
     var rows = m.outputs.map(function (o) {
       var r = m.row(o);
@@ -1467,27 +1510,30 @@ var HYUNDAI_LOGO_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAJcAAAAeCAYAAAAhIIxpAAAAAXNSR0IA
     });
     var visible = rows.filter(function (r) { return m.part === 'both' || r.part === m.part; });
 
-    var feedTot = 0, detTot = 0;
+    var p1Name = m.phaseName('p1'), p2Name = m.phaseName('p2');
+    var t1 = 0, t2 = 0;
     visible.forEach(function (r) {
-      feedTot += r.total * r.pct / 100;
-      detTot += r.total * (1 - r.pct / 100);
+      t1 += r.total * r.pct / 100;
+      t2 += r.total * (1 - r.pct / 100);
     });
 
     var h = '';
     h += '<div class="phase-intro">' +
-      '<b>How this works.</b> Set the share of each activity performed during FEED. ' +
-      'The remainder becomes detail-engineering scope, priced with the same Unit M/H, ' +
-      'so FEED + Detail always adds back to the full total. ' +
-      '100 = FEED only, 0 = deferred entirely to detail engineering.' +
+      '<b>How this works.</b> Set the share of each activity performed in <b>' + esc(p1Name) + '</b>. ' +
+      'The remainder becomes <b>' + esc(p2Name) + '</b> scope, priced with the same Unit M/H, ' +
+      'so the two phases always add back to the full total. ' +
+      '100 = ' + esc(p1Name) + ' only, 0 = deferred entirely to ' + esc(p2Name) + '. ' +
+      'Rename either phase in Master Control &mdash; FEED and detail engineering, ' +
+      'a bid stage and execution, or whatever the job calls for.' +
       '</div>';
 
     h += '<div class="phase-bar">' +
-      '<button type="button" class="pbtn" data-all="100">Set every activity to FEED</button>' +
-      '<button type="button" class="pbtn" data-all="0">Defer every activity to detail</button>' +
+      '<button type="button" class="pbtn" data-all="100">All to ' + esc(p1Name) + '</button>' +
+      '<button type="button" class="pbtn" data-all="0">All to ' + esc(p2Name) + '</button>' +
       '<button type="button" class="pbtn" data-all="50">Split everything 50 / 50</button>' +
-      '<span class="phase-live">FEED <b>' + fmt(feedTot) + '</b> M/H' +
-      ' &nbsp;·&nbsp; Detail <b>' + fmt(detTot) + '</b> M/H' +
-      ' &nbsp;·&nbsp; Total <b>' + fmt(feedTot + detTot) + '</b> M/H</span>' +
+      '<span class="phase-live">' + esc(p1Name) + ' <b>' + fmt(t1) + '</b> M/H' +
+      ' &nbsp;·&nbsp; ' + esc(p2Name) + ' <b>' + fmt(t2) + '</b> M/H' +
+      ' &nbsp;·&nbsp; Total <b>' + fmt(t1 + t2) + '</b> M/H</span>' +
       '</div>';
 
     h += '<div class="scrollx"><table class="sheet phase" style="width:100%">';
@@ -1499,10 +1545,10 @@ var HYUNDAI_LOGO_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAJcAAAAeCAYAAAAhIIxpAAAAAXNSR0IA
       '<th class="head-basic">Unit</th>' +
       '<th class="head-basic">Qty</th>' +
       '<th class="head-unit">Total M/H</th>' +
-      '<th class="head-mh">FEED %</th>' +
+      '<th class="head-mh">' + esc(p1Name) + ' %</th>' +
       '<th class="head-mh">Quick set</th>' +
-      '<th class="head-unit">FEED M/H</th>' +
-      '<th class="head-unit">Detail M/H</th></tr>';
+      '<th class="head-unit">' + esc(p1Name) + ' M/H</th>' +
+      '<th class="head-unit">' + esc(p2Name) + ' M/H</th></tr>';
 
     var current = null, no = 1;
     visible.forEach(function (r) {
@@ -1516,13 +1562,13 @@ var HYUNDAI_LOGO_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAJcAAAAeCAYAAAAhIIxpAAAAAXNSR0IA
         h += '<tr class="section"><td colspan="7">' +
           (m.part === 'both' ? esc(partShort(r.part)) + ' &nbsp;·&nbsp; ' : '') + esc(sec) + '</td>' +
           '<td colspan="4" class="ctr"><span class="secset" data-sec="' + esc(secKey) + '">' +
-          'set section: <button type="button" class="pbtn sm" data-sec-pct="100">FEED</button>' +
+          'set section: <button type="button" class="pbtn sm" data-sec-pct="100">' + esc(p1Name) + '</button>' +
           '<button type="button" class="pbtn sm" data-sec-pct="50">50/50</button>' +
-          '<button type="button" class="pbtn sm" data-sec-pct="0">Detail</button></span></td></tr>';
+          '<button type="button" class="pbtn sm" data-sec-pct="0">' + esc(p2Name) + '</button></span></td></tr>';
       }
-      var feed = r.total * r.pct / 100;
-      var det = r.total - feed;
-      var cls = r.pct >= 100 ? 'p-feed' : r.pct <= 0 ? 'p-det' : 'p-mix';
+      var v1 = r.total * r.pct / 100;
+      var v2 = r.total - v1;
+      var cls = r.pct >= 100 ? 'p-one' : r.pct <= 0 ? 'p-two' : 'p-mix';
       h += '<tr class="' + (no % 2 ? '' : 'odd') + '">' +
         '<td class="ctr">' + no + '</td>' +
         '<td class="ctr">' + esc(partShort(r.part)) + '</td>' +
@@ -1534,19 +1580,21 @@ var HYUNDAI_LOGO_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAJcAAAAeCAYAAAAhIIxpAAAAAXNSR0IA
         '<td class="ctr ' + cls + '"><input class="pct" type="text" inputmode="decimal" ' +
         'id="ph-' + r.idx + '" data-idx="' + r.idx + '" value="' + money(r.pct, 0) + '"></td>' +
         '<td class="ctr nowrap">' +
-        '<button type="button" class="pbtn sm" data-idx="' + r.idx + '" data-pct="100">F</button>' +
+        '<button type="button" class="pbtn sm" data-idx="' + r.idx + '" data-pct="100" ' +
+        'title="all to ' + esc(p1Name) + '">P1</button>' +
         '<button type="button" class="pbtn sm" data-idx="' + r.idx + '" data-pct="50">50</button>' +
-        '<button type="button" class="pbtn sm" data-idx="' + r.idx + '" data-pct="0">D</button>' +
+        '<button type="button" class="pbtn sm" data-idx="' + r.idx + '" data-pct="0" ' +
+        'title="all to ' + esc(p2Name) + '">P2</button>' +
         '</td>' +
-        '<td class="num int">' + fmt(feed) + '</td>' +
-        '<td class="num ext">' + fmt(det) + '</td></tr>';
+        '<td class="num int">' + fmt(v1) + '</td>' +
+        '<td class="num ext">' + fmt(v2) + '</td></tr>';
       no += 1;
     });
 
     h += '<tr class="total"><td colspan="9">TOTAL' +
       (m.part === 'both' ? '' : ' (' + esc(partShort(m.part)) + ' only)') + '</td>' +
-      '<td class="num">' + fmt(feedTot) + '</td>' +
-      '<td class="num">' + fmt(detTot) + '</td></tr>';
+      '<td class="num">' + fmt(t1) + '</td>' +
+      '<td class="num">' + fmt(t2) + '</td></tr>';
     h += '</table></div>';
     el.innerHTML = h;
 
@@ -1604,7 +1652,7 @@ var HYUNDAI_LOGO_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAJcAAAAeCAYAAAAhIIxpAAAAAXNSR0IA
     function mmOf(v) { return m.base_mh ? v / m.base_mh : 0; }
     function headOf(v) { return (m.base_mh && all.months) ? v / m.base_mh / all.months : 0; }
 
-    var h = '<div class="summary-title">FEED Project M/H Summary (C&amp;I + Telecom)</div>';
+    var h = '<div class="summary-title">Project M/H Summary (C&amp;I + Telecom)</div>';
     h += '<div class="summary-head">' +
       '<span class="chip">PROJECT : ' + esc(m.project || '-') + '</span>' +
       '<span class="chip' + (m.external_min === 'Yes' ? ' on' : '') + '">Outsourcing Minimization : ' + esc(m.external_min) + '</span>' +
@@ -1643,19 +1691,20 @@ var HYUNDAI_LOGO_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAJcAAAAeCAYAAAAhIIxpAAAAAXNSR0IA
     h += '</table>';
 
     /* Section 3 always shows all three phase columns, whatever the phase view,
-     * so the FEED / detail split of the whole programme is visible at a glance. */
-    var pf = m.partTotals('both', 'feed');
-    var pd = m.partTotals('both', 'det');
+     * so the split of the whole programme is visible at a glance. */
+    var pf = m.partTotals('both', 'p1');
+    var pd = m.partTotals('both', 'p2');
     var pa = m.partTotals('both', 'all');
     function months(v) { return v ? f1(v) : '&mdash;'; }
     function head(o) { return (m.base_mh && o.months) ? f1(o.mm / o.months) : '&mdash;'; }
 
-    h += '<table class="summary"><caption>3. Phase breakdown &mdash; FEED vs detail engineering</caption>';
+    h += '<table class="summary"><caption>3. Phase breakdown &mdash; ' +
+      esc(m.phaseName('p1')) + ' vs ' + esc(m.phaseName('p2')) + '</caption>';
     h += '<tr><th>Phase</th><th>Duration</th><th>Internal</th><th>Outsourced</th>' +
       '<th>Total M/H</th><th>Total M/M</th><th>Manpower</th><th>Est. cost</th></tr>';
-    [['FEED', pf], ['Detail engineering', pd]].forEach(function (x) {
+    [[m.phaseName('p1'), pf], [m.phaseName('p2'), pd]].forEach(function (x) {
       var o = x[1];
-      h += '<tr><td class="lbl">' + x[0] + '</td><td>' + months(o.months) + '</td>' +
+      h += '<tr><td class="lbl">' + esc(x[0]) + '</td><td>' + months(o.months) + '</td>' +
         '<td>' + fmt(o.internal) + '</td><td>' + fmt(o.external) + '</td>' +
         '<td class="b">' + fmt(o.total) + '</td><td>' + f1(o.mm) + '</td>' +
         '<td>' + head(o) + '</td><td>' + fmt(o.external * rate) + '</td></tr>';
@@ -1669,12 +1718,13 @@ var HYUNDAI_LOGO_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAJcAAAAeCAYAAAAhIIxpAAAAAXNSR0IA
     var deferred = m.phase_split.filter(function (v) { return num(v) < 100; }).length;
     h += '<div class="summary-note"><b>Phase split</b> &nbsp; ' +
       (deferred
-        ? deferred + ' of ' + m.phase_split.length + ' activities are wholly or partly deferred to detail engineering. '
-        : 'Every activity is currently assigned to FEED. ') +
-      'Detail-phase M/H is the deferred remainder priced with the same Unit M/H, so FEED + detail ' +
-      'always adds back to the whole-programme total. Because the standards tables are written for ' +
-      'FEED, treat the detail figure as deferred scope rather than a detail-engineering estimate. ' +
-      'Change the split on the <b>Phase Split</b> tab.</div>';
+        ? deferred + ' of ' + m.phase_split.length + ' activities are wholly or partly deferred to ' +
+          esc(m.phaseName('p2')) + '. '
+        : 'Every activity is currently assigned to ' + esc(m.phaseName('p1')) + '. ') +
+      esc(m.phaseName('p2')) + ' M/H is the deferred remainder priced with the same Unit M/H, so the ' +
+      'two phases always add back to the whole-programme total. The standards tables carry one set of ' +
+      'Unit M/H, so the second-phase figure states deferred scope rather than a separately estimated ' +
+      'stage. Change the split on the <b>Phase Split</b> tab.</div>';
 
     h += '<div class="summary-note"><b>Note</b> &nbsp; The summary is recalculated immediately from ' +
       'Master Control, the values on Edit Inputs and the Unit M/H on the calculation-standards tabs. ' +
@@ -1687,8 +1737,8 @@ var HYUNDAI_LOGO_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAJcAAAAeCAYAAAAhIIxpAAAAAXNSR0IA
     var t = m.partTotals(part, m.phase_view);
     var rows = t.rows;
     var title = part === 'ci'
-      ? 'C&I Design - Petrochemical FEED Project M/H Calculation Sheet (Rev.3)'
-      : 'Telecom Design - Petrochemical FEED Project M/H Calculation Sheet (Rev.3)';
+      ? 'C&I Design - Petrochemical Project M/H Calculation Sheet (Rev.3)'
+      : 'Telecom Design - Petrochemical Project M/H Calculation Sheet (Rev.3)';
     var ver = m.external_min === 'Yes' ? '[ Outsourcing Minimization Ver. ]' : '[ Standard Ver. ]';
     var rate = m.case_ === 'short' ? m.rate_short : m.rate_comp;
     var base = part === 'ci'
@@ -1786,9 +1836,9 @@ var HYUNDAI_LOGO_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAJcAAAAeCAYAAAAhIIxpAAAAAXNSR0IA
   function renderOp(el, sheet) {
     var rows = rowsForSheet(sheet);
     var isOp1 = sheet === 'OP1';
-    var title = m.part === 'ci' ? 'C&I Design - Petrochemical FEED Project M/H Calculation Sheet (Rev.3)'
-      : m.part === 'tel' ? 'Telecom Design - Petrochemical FEED Project M/H Calculation Sheet (Rev.3)'
-        : 'C&I / Telecom FEED Project M/H Calculation Sheet (Rev.3)';
+    var title = m.part === 'ci' ? 'C&I Design - Petrochemical Project M/H Calculation Sheet (Rev.3)'
+      : m.part === 'tel' ? 'Telecom Design - Petrochemical Project M/H Calculation Sheet (Rev.3)'
+        : 'C&I / Telecom Project M/H Calculation Sheet (Rev.3)';
     var ver = m.external_min === 'Yes' ? '[ Outsourcing Minimization Ver. ]' : '[ Standard Ver. ]';
 
     var h = '<div><span class="sheet-date">' + SHEET_DATE + '</span><div class="sheet-title">' + esc(title) + '</div></div>';
@@ -1809,7 +1859,7 @@ var HYUNDAI_LOGO_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAJcAAAAeCAYAAAAhIIxpAAAAAXNSR0IA
     }
     h += '</table></div>';
     h += '<div><div class="b" style="margin-bottom:4px;">Notes</div><div class="notesbox">' +
-      '1. The FEED calculation basis is the Unit M/H on the calculation-standards tabs together with the Project Conditions.<br>' +
+      '1. The calculation basis is the Unit M/H on the calculation-standards tabs together with the Project Conditions.<br>' +
       '2. Activities are grouped into a section tree so the OP1 / OP2 results can be reviewed on one screen.</div></div>';
     h += '</div>';
     h += '<div class="projbar"><div class="k">PROJECT:</div><div class="v">' + esc(m.project || '') + '</div></div>';
@@ -1886,8 +1936,8 @@ var HYUNDAI_LOGO_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAJcAAAAeCAYAAAAhIIxpAAAAAXNSR0IA
     var isCi = part === 'ci';
     var diffs = isCi ? ['SPI', '상', '중', '하'] : ['상', '중', '하'];
     var title = isCi
-      ? 'C&I Design - Petrochemical FEED Project M/H Calculation Standards (Rev.3)'
-      : 'Telecom Design - Petrochemical FEED Project M/H Calculation Standards (Rev.3)';
+      ? 'C&I Design - Petrochemical Project M/H Calculation Standards (Rev.3)'
+      : 'Telecom Design - Petrochemical Project M/H Calculation Standards (Rev.3)';
     var version = m.external_min === 'Yes' ? 'Outsourcing Minimization Ver.' : 'Standard Ver.';
 
     var h = '<div><span class="sheet-date">' + SHEET_DATE + '</span><div class="sheet-title">' + esc(title) + '</div></div>';
@@ -1974,7 +2024,7 @@ var HYUNDAI_LOGO_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAJcAAAAeCAYAAAAhIIxpAAAAAXNSR0IA
     h += '<h2>I. About each sheet (tab)</h2>';
     [['1. Summary sheet', 'Shows the combined C&I + Telecom M/H summary for the values entered in Master Control.\nPart, Case, Outsourcing Minimization, the internal/external ratio, Base M/H, design duration and unit rates all feed both the Summary and the Output tabs.\nUse it to check the outsourcing estimate, Total M/H, Total M/M and average manpower.'],
      ['2. Standards_CI / Standards_TEL sheets', 'The reference tables of internal and outsourced Unit M/H per difficulty grade.\nUse them to review the activity, unit, difficulty, internal/external Unit M/H and the guidance text.\nEditing a yellow (internal) or green (outsourced) number cell recalculates every result immediately.'],
-     ['3. Phase Split sheet', 'Sets which deliverables are produced during FEED and which are deferred to detail engineering.\nEach activity carries a FEED share from 0 to 100% - 100 means FEED only, 0 means the activity is deferred entirely. Anything in between splits the activity across both phases.\nUse the buttons to set every activity, a whole section, or a single row at once. The detail-phase M/H is the deferred remainder priced with the same Unit M/H, so FEED and detail always add back to the full total.'],
+     ['3. Phase Split sheet', 'Sets which deliverables belong to the first phase of the job and which are deferred to the second.\nEach activity carries a phase 1 share from 0 to 100% - 100 means phase 1 only, 0 means the activity is deferred entirely. Anything in between splits the activity across both phases.\nName the two phases in Master Control to suit the job - FEED and detail engineering, a bid stage and execution, or any other pair.\nUse the buttons to set every activity, a whole section, or a single row at once. Phase 2 M/H is the deferred remainder priced with the same Unit M/H, so the two phases always add back to the full total.'],
      ['4. Edit Inputs sheet', 'Where you enter the quantities and Project Conditions the calculation is built on.\nYellow is a required input, blue mirrors Master Control, green is an automatic result and purple is an optional selection.\nSelection items are chosen from a drop-down.'],
      ['5. Output_CI / Output_TEL sheets', 'A per-Part calculation sheet showing activity, unit, quantity, difficulty, internal/external M/H and Total M/H.\nThe Case and Outsourcing Minimization settings from Master Control are applied.'],
      ['6. OP1 / OP2 sheets', 'OP1 shows the internal and external Unit M/H and the resulting M/H for every activity.\nOP2-Single and OP2-Comprehensive are the reporting views, each fixed to its own Case regardless of the Case selected in Master Control.'],
@@ -1982,7 +2032,7 @@ var HYUNDAI_LOGO_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAJcAAAAeCAYAAAAhIIxpAAAAAXNSR0IA
     ].forEach(function (x) { h += block(x[0], x[1]); });
 
     h += '<h2>II. About each Case</h2>';
-    [['1. Outsourcing-Single Case', 'The externally performed share is priced at the Outsourcing-Single unit rate.\nUse it for ordinary FEED calculations that separate internal review from outsourced execution.'],
+    [['1. Outsourcing-Single Case', 'The externally performed share is priced at the Outsourcing-Single unit rate.\nUse it for ordinary calculations that separate internal review from outsourced execution.'],
      ['2. Outsourcing-Comprehensive Case', 'The externally performed share is priced at the Outsourcing-Comprehensive unit rate.\nUse it to study conditions where one subcontractor performs several disciplines together.']
     ].forEach(function (x) { h += block(x[0], x[1]); });
 
@@ -1992,11 +2042,12 @@ var HYUNDAI_LOGO_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAJcAAAAeCAYAAAAhIIxpAAAAAXNSR0IA
      ['3. Original basis vs Outsourcing Minimization', 'The original basis keeps the Unit M/H structure of the source standards.\nTo apply Outsourcing Minimization, use the user-entered ratio.', true]
     ].forEach(function (x) { h += block(x[0], x[1], x[2]); });
 
-    h += '<h2>IV. Running FEED and detail engineering</h2>';
-    h += block('1. Set the two durations', 'Master Control has a duration for each phase - FEED duration and detail engineering duration.\nM/M is always Total M/H divided by Base M/H; average manpower divides that M/M by the duration of the phase being viewed, so each phase gets its own headcount.\nWith the phase view set to All phases, manpower is averaged over both durations added together.');
-    h += block('2. Assign the deliverables', 'On the Phase Split tab, set the FEED share of each activity. Leaving everything at 100 reproduces the calculation exactly as it behaves without phases.\nActivities are addressed by row, not by code, because four C&I codes appear twice in the list.');
-    h += block('3. Read the result', 'Section 3 of the Summary always shows FEED, detail engineering and the whole programme side by side, whatever the phase view.\nThe phase view in Master Control filters Output_CI, Output_TEL and the OP sheets, so you can print a FEED-only calculation sheet. A yellow banner marks any sheet limited to one phase.');
-    h += block('4. Know what the detail figure means', 'Detail-phase M/H is the deferred remainder of the FEED standard, priced with the same Unit M/H. FEED + detail always reconciles to the full total, so nothing is lost or invented.\nThe standards tables were written for FEED, so treat the detail figure as a statement of deferred scope rather than a detail-engineering estimate.', true);
+    h += '<h2>IV. Splitting a job into two phases</h2>';
+    h += block('1. Name the phases', 'This calculator is used for more than one kind of job - a FEED, a detail-engineering scope, a bid estimate - so the phases carry no fixed stage name.\nName them in Master Control to suit the job: FEED and Detail Engineering, Bid and Execution, Phase 1 and Phase 2. The names you type appear on every tab and in the Word report.');
+    h += block('2. Set the two durations', 'Master Control has a duration for each phase.\nM/M is always Total M/H divided by Base M/H; average manpower divides that M/M by the duration of the phase being viewed, so each phase gets its own headcount.\nWith the phase view set to All phases, manpower is averaged over both durations added together.');
+    h += block('3. Assign the deliverables', 'On the Phase Split tab, set the phase 1 share of each activity. Leaving everything at 100 reproduces the calculation exactly as it behaves without phases.\nActivities are addressed by row, not by code, because four C&I codes appear twice in the list.');
+    h += block('4. Read the result', 'Section 3 of the Summary always shows both phases and the whole programme side by side, whatever the phase view.\nThe phase view in Master Control filters Output_CI, Output_TEL and the OP sheets, so you can print a single-phase calculation sheet. A yellow banner marks any sheet limited to one phase, and each row states its share in the Remarks column.');
+    h += block('5. Know what the second-phase figure means', 'It is the deferred remainder, priced with the same Unit M/H as the first phase. The two phases always reconcile to the full total, so nothing is lost or invented.\nThe standards tables carry one set of Unit M/H, so treat the second-phase figure as a statement of deferred scope rather than a separately estimated stage.', true);
 
     h += '<h2>V. Order of use</h2>';
     h += block('1. Enter the basic information', 'In Master Control on the left, enter the Project, Part, Case, Base M/H, design duration and outsourcing unit rates.');
@@ -2020,7 +2071,8 @@ var HYUNDAI_LOGO_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAJcAAAAeCAYAAAAhIIxpAAAAAXNSR0IA
       external_min: m.external_min,
       base_mh: m.base_mh,
       months: m.months,
-      months_det: m.months_det,
+      months_2: m.months_2,
+      phase_names: m.phase_names.slice(),
       phase_view: m.phase_view,
       phase_split: m.phase_split.slice(),
       rate_short: m.rate_short,
@@ -2050,10 +2102,18 @@ var HYUNDAI_LOGO_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAJcAAAAeCAYAAAAhIIxpAAAAAXNSR0IA
     m.external_min = data.external_min || 'No';
     m.base_mh = num(data.base_mh === undefined ? 161 : data.base_mh);
     m.months = num(data.months === undefined ? 4 : data.months);
-    m.months_det = num(data.months_det === undefined ? 0 : data.months_det);
-    m.phase_view = data.phase_view || 'all';
+    // months_det / 'feed' / 'det' are the names this file used before the phases
+    // were made generic; both spellings are accepted so older files still load.
+    m.months_2 = num(data.months_2 === undefined
+      ? (data.months_det === undefined ? 0 : data.months_det)
+      : data.months_2);
+    var pv = data.phase_view || 'all';
+    m.phase_view = pv === 'feed' ? 'p1' : pv === 'det' ? 'p2' : pv;
+    m.phase_names = Array.isArray(data.phase_names) && data.phase_names.length === 2
+      ? [String(data.phase_names[0] || 'Phase 1'), String(data.phase_names[1] || 'Phase 2')]
+      : ['Phase 1', 'Phase 2'];
     /* A file written before phases existed - or by the desktop program - has no
-     * split, so the whole scope stays in FEED and the numbers are unchanged. */
+     * split, so the whole scope stays in phase 1 and the numbers are unchanged. */
     if (Array.isArray(data.phase_split) && data.phase_split.length === m.phase_split.length) {
       m.phase_split = data.phase_split.map(function (v) {
         return Math.min(100, Math.max(0, num(v === undefined ? 100 : v)));
@@ -2104,7 +2164,10 @@ var HYUNDAI_LOGO_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAJcAAAAeCAYAAAAhIIxpAAAAAXNSR0IA
 
   function loadState(showMsg) {
     var raw;
-    try { raw = localStorage.getItem(STORAGE_KEY); } catch (e) { raw = null; }
+    try {
+      raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) raw = localStorage.getItem(LEGACY_STORAGE_KEY);
+    } catch (e) { raw = null; }
     if (!raw) {
       if (showMsg) toast('No saved inputs found.');
       return false;
@@ -2125,7 +2188,7 @@ var HYUNDAI_LOGO_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAJcAAAAeCAYAAAAhIIxpAAAAAXNSR0IA
     var url = URL.createObjectURL(blob);
     var a = document.createElement('a');
     a.href = url;
-    a.download = 'FEED_MH_Calculator_Input_Backup.json';
+    a.download = 'MH_Calculator_Input_Backup.json';
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -2151,7 +2214,10 @@ var HYUNDAI_LOGO_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAJcAAAAeCAYAAAAhIIxpAAAAAXNSR0IA
 
   function resetState() {
     if (!confirm('Reset all inputs?\nThe last saved state will be deleted as well.')) return;
-    try { localStorage.removeItem(STORAGE_KEY); } catch (e) { /* ignore */ }
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+      localStorage.removeItem(LEGACY_STORAGE_KEY);
+    } catch (e) { /* ignore */ }
     m = new MH.Model();
     writeControls();
     refreshAll();
@@ -2164,8 +2230,9 @@ var HYUNDAI_LOGO_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAJcAAAAeCAYAAAAhIIxpAAAAAXNSR0IA
     var ci = m.partTotals('ci');
     var tel = m.partTotals('tel');
     var phases = {
-      feed: m.partTotals('both', 'feed'),
-      det: m.partTotals('both', 'det'),
+      names: m.phase_names.slice(),
+      p1: m.partTotals('both', 'p1'),
+      p2: m.partTotals('both', 'p2'),
       all: m.partTotals('both', 'all'),
       deferred: m.phase_split.filter(function (v) { return num(v) < 100; }).length,
       count: m.phase_split.length
@@ -2182,7 +2249,7 @@ var HYUNDAI_LOGO_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAJcAAAAeCAYAAAAhIIxpAAAAAXNSR0IA
       base_mh: m.base_mh, months: m.months,
       rate_short: m.rate_short, rate_comp: m.rate_comp,
       ci: ci, tel: tel, total: total, phases: phases,
-      months_det: m.months_det,
+      months_2: m.months_2,
       short_cost: total.external * m.rate_short,
       comp_cost: total.external * m.rate_comp,
       std: m.std
@@ -2192,7 +2259,7 @@ var HYUNDAI_LOGO_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAJcAAAAeCAYAAAAhIIxpAAAAAXNSR0IA
   function generateReport() {
     try {
       MHReport.download(reportData(), typeof HYUNDAI_LOGO_B64 !== 'undefined' ? HYUNDAI_LOGO_B64 : null,
-        'FEED_MH_Report_Hyundai.doc');
+        'MH_Report_Hyundai.doc');
       toast('Word report (.doc) downloaded.');
     } catch (e) {
       toast('Word report generation failed: ' + e.message);
@@ -2213,7 +2280,8 @@ var HYUNDAI_LOGO_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAJcAAAAeCAYAAAAhIIxpAAAAAXNSR0IA
       applyLeft();
     });
     $('mc-phase').addEventListener('change', applyLeft);
-    ['mc-project', 'mc-base', 'mc-months', 'mc-months-det', 'mc-rate-short', 'mc-rate-comp'].forEach(function (id) {
+    ['mc-project', 'mc-base', 'mc-months', 'mc-months-2', 'mc-rate-short', 'mc-rate-comp',
+     'mc-p1-name', 'mc-p2-name'].forEach(function (id) {
       $(id).addEventListener('change', applyLeft);
       $(id).addEventListener('keydown', function (e) { if (e.key === 'Enter') $(id).blur(); });
     });

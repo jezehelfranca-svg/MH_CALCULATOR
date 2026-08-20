@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Rebuild the data block inside the single-file web app.
 
-FEED_MH_Calculator.html is self-contained: styles, model, report generator and
+MH_Calculator.html is self-contained: styles, model, report generator and
 base data all live in that one file. This script refreshes only the generated
 data block - the part between
 
@@ -34,7 +34,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / 'FEED_MH_Calculator_V0_4_OPExcelGrid.py'
 DICT = Path(__file__).resolve().parent / 'ko_en.json'
-APP = ROOT / 'FEED_MH_Calculator.html'
+APP = ROOT / 'MH_Calculator.html'
 
 BEGIN = '<!-- ===== BEGIN GENERATED DATA'
 END = '<!-- ===== END GENERATED DATA ===== -->'
