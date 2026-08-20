@@ -12,9 +12,12 @@ FEED M/H Calculator V0.4 OPExcelGrid / 2026-08-11
   No installation, no Python, no server, and no external files - styles, calculation model,
   report generator, base data and logo are all inside that one file.
 - Works from a local disk, a USB stick, an email attachment or a static web server.
-- The tab structure (Edit Inputs / Guide / Summary / Output_CI / Output_TEL / OP1 /
-  OP2-Single / OP2-Comprehensive / Standards_CI / Standards_TEL) and the results are
+- The tab structure (Edit Inputs / Phase Split / Guide / Summary / Output_CI / Output_TEL /
+  OP1 / OP2-Single / OP2-Comprehensive / Standards_CI / Standards_TEL) and the results are
   identical to the desktop program. The interface is in English.
+- Phase Split is web-only: it assigns each activity a FEED share (0-100%) so a project that
+  runs FEED then detail engineering can be split, with a duration and a headcount per phase.
+  Leaving every activity at 100 reproduces the desktop program's figures exactly.
 - Inputs are saved in the browser automatically, and JSON export/import lets the web app
   and the desktop program exchange input files.
 - See WEB_APP.md for details.

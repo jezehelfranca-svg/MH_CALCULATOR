@@ -13,13 +13,46 @@ Open `FEED_MH_Calculator.html` in a browser — double-click it, or drag it onto
 window. It also works from a USB stick, an email attachment, a network share, or any static
 web server. Nothing to install, no Python, no server.
 
-## Tabs (same as the desktop program)
+## Tabs
 
-`Edit Inputs` · `Guide / Help` · `Summary` · `Output_CI` · `Output_TEL` ·
+`Edit Inputs` · **`Phase Split`** · `Guide / Help` · `Summary` · `Output_CI` · `Output_TEL` ·
 `OP1` · `OP2-Single` · `OP2-Comprehensive` · `Standards_CI` · `Standards_TEL`
 
-The Master Control panel on the left drives every tab: Part, Case, ratio basis, Outsourcing
-Minimization, Project, Base M/H, design duration and the two outsourcing unit rates.
+All except `Phase Split` mirror the desktop program. The Master Control panel on the left
+drives every tab: Part, Case, ratio basis, Outsourcing Minimization, Project, Base M/H, the two
+phase durations, phase view and the two outsourcing unit rates.
+
+## FEED and detail engineering phases
+
+A project may run FEED and detail engineering back to back with only part of the scope
+delivered during FEED. The `Phase Split` tab assigns each of the 54 activities a **FEED share**
+from 0 to 100%:
+
+- **100** — produced entirely during FEED
+- **0** — deferred entirely to detail engineering
+- **anything between** — drafted in FEED, completed in detail (e.g. a layout at 40 / 60)
+
+Set them one row at a time (`F` / `50` / `D` buttons, or type a percentage), a whole section at
+once, or every activity at once. Activities are addressed **by row position, not by code** —
+four C&I codes (A17–A20) appear twice in the output list.
+
+**What the detail figure means.** Detail-phase M/H is the deferred remainder priced with the
+same Unit M/H, so FEED + detail always reconciles to the whole-programme total — nothing is
+lost or invented. The standards tables were written for FEED, so treat the detail figure as a
+statement of deferred scope rather than a detail-engineering estimate.
+
+**Durations.** Master Control holds a FEED duration and a detail engineering duration. M/M is
+always Total M/H ÷ Base M/H; average manpower divides that by the duration of the phase being
+viewed, so each phase gets its own headcount. Under `All phases`, manpower is averaged over
+both durations combined.
+
+**Phase view.** `All phases` / `FEED only` / `Detail engineering only` filters `Output_CI`,
+`Output_TEL` and the OP sheets, so a FEED-only calculation sheet can be printed. A yellow
+banner marks any sheet limited to one phase, and each row's Remarks column states its share —
+so a reviewer checking `Unit M/H × Qty` can see why a row does not multiply out. Section 3 of
+the Summary always shows FEED, detail and the whole programme side by side, whatever the view.
+
+Leaving every activity at 100 reproduces the calculation exactly as it behaves without phases.
 
 ## Result parity
 
@@ -35,10 +68,14 @@ cross-checked over:
 
 ## Saving and exchanging inputs
 
-Inputs and any edits to the calculation standards are saved to browser localStorage
-automatically and restored on the next visit. `Export inputs` writes a JSON file in the same
-format as the desktop program's `FEED_MH_Calculator_Last_Input.json`, so the two programs can
-load each other's files.
+Inputs, the phase split and any edits to the calculation standards are saved to browser
+localStorage automatically and restored on the next visit. `Export inputs` writes a JSON file in
+the same format as the desktop program's `FEED_MH_Calculator_Last_Input.json`, so the two
+programs can load each other's files.
+
+The phase fields (`phase_split`, `months_det`, `phase_view`) are extra keys the desktop program
+ignores, so it reads such a file and reports the whole-programme figures. A file written by the
+desktop program has no split, so the whole scope stays in FEED and the numbers are unchanged.
 
 ## Word report
 
@@ -69,6 +106,7 @@ model block render them as High / Medium / Low / SPI-Internal / SPI-External.
 | Word report | `.docx` via `python-docx` | `.doc` (HTML) download; charts become table-based bars |
 | Editing a standard's value | Double-click the cell, then type | Click the cell and type |
 | Version label on the standards tabs | Hard-coded `일반 Ver.` | Follows the Outsourcing Minimization setting, like every other tab |
+| FEED / detail phase split | Not available | `Phase Split` tab, per-phase durations and a phase view |
 | OP / standards grids | Drawn on a Tkinter canvas | HTML tables — same columns, colours and header structure, with horizontal scrolling |
 
 ## Editing the file
@@ -78,7 +116,7 @@ The file is organised in labelled sections, in this order:
 | Section | Contents |
 | --- | --- |
 | `<style>` | Screen styles and Excel-like table formatting |
-| `<body>` markup | Master Control panel and the 10 tab panels |
+| `<body>` markup | Master Control panel and the 11 tab panels |
 | GENERATED DATA | Input items, Output activities, calculation standards, logo |
 | `MH` | Port of the `Model` class — difficulty derivation, auto quantities, internal/outsourced split, Case logic |
 | `MHReport` | Word report generation |
