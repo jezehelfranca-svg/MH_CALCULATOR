@@ -6,3 +6,7 @@ __pycache__/
 #   python3 tools/extract_de_model.py <workbook.xlsx>
 de_model.json
 de_std.json
+
+# Intermediate bundles emitted beside a built app
+*.bundle.json
+*.bundle.expect.json
