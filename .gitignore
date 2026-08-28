@@ -1,0 +1,8 @@
+# Python bytecode caches - build artifacts, not source
+__pycache__/
+*.py[cod]
+
+# Extractor output: derived from the workbooks, regenerate with
+#   python3 tools/extract_de_model.py <workbook.xlsx>
+de_model.json
+de_std.json
