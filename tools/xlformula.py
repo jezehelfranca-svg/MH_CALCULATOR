@@ -119,6 +119,12 @@ class Parser:
             node = ('pct', node)
         return node
 
+    def argument(self):
+        # Excel allows an omitted argument - ROUNDUP(x,) - and reads it as 0.
+        if self.peek()[1] in (',', ')'):
+            return ('num', 0.0)
+        return self.comparison()
+
     def primary(self):
         kind, val = self.peek()
         if kind == 'num':
@@ -145,10 +151,10 @@ class Parser:
                 self.take('(')
                 args = []
                 if self.peek()[1] != ')':
-                    args.append(self.comparison())
+                    args.append(self.argument())
                     while self.peek()[1] == ',':
                         self.take(',')
-                        args.append(self.comparison())
+                        args.append(self.argument())
                 self.take(')')
                 return ('call', val.upper(), args)
             return ('name', val)          # a bare name - e.g. the workbook's "fault"
@@ -190,6 +196,8 @@ def evaluate(node, resolve):
             bv = '' if bv is None else bv
             if not (isinstance(av, str) and isinstance(bv, str)):
                 av, bv = str(av), str(bv)
+            # Excel compares text case-insensitively: "Yes" = "yes" is TRUE.
+            av, bv = av.upper(), bv.upper()
         else:
             av, bv = _num(av), _num(bv)
         return {'=': av == bv, '<>': av != bv, '<': av < bv,
