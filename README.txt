@@ -24,3 +24,21 @@ FEED M/H Calculator V0.4 OPExcelGrid / 2026-08-11
 - Inputs are saved in the browser automatically, and JSON export/import lets the web app
   and the desktop program exchange input files.
 - See WEB_APP.md for details.
+
+[Detail Engineering / Proposal web apps]
+- DE_MH_Calculator.html and Proposal_MH_Calculator.html are built from the 실행사업 Rev.3
+  Excel workbooks (MH_Calculator_Detail Engineering.xlsx / MH_Calculator_Propoal.xlsx).
+- Each is a single self-contained file, like MH_Calculator.html.
+- They do not re-implement the workbook: they carry its formula graph and evaluate it in the
+  browser, so every figure matches Excel cell for cell - for any quantities entered, not only
+  the sample project. Both were checked against every cached value in their workbook: 0
+  mismatches.
+- They are separate apps because the two workbooks are genuinely different: the proposal book
+  carries 49 hand-edited formulas the execution book does not. No setting turns one into the
+  other.
+- Tabs: Summary / OP1_CI / OP1_TEL / OP2-1 / OP2-2 / OP2-3 / Input_CI / Input_TEL /
+  Standards_CI / Standards_TEL / Guide.
+- The Input tabs are drawn as the workbook's three side-by-side blocks, with its own headers,
+  its own dropdown lists on the Project Condition selectors, and the Excel row number on every
+  row. Calculated cells are shown but not editable.
+- See DE_APPS.md for details.

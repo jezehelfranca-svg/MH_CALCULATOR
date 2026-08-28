@@ -3,6 +3,10 @@
 `MH_Calculator.html` is a browser version of the desktop program
 (`FEED_MH_Calculator_V0_4_OPExcelGrid.py`) that produces **the same calculation results**.
 
+> For the two calculators built from the 실행사업 Rev.3 Excel workbooks —
+> `DE_MH_Calculator.html` and `Proposal_MH_Calculator.html` — see **[DE_APPS.md](DE_APPS.md)**.
+> Those evaluate the workbook's own formulas rather than porting the Python model.
+
 It is one self-contained file. Styles, the calculation model, the report generator, the base
 data and the logo all live inside it — no external stylesheets, scripts, fonts, images or
 network calls of any kind. Loading the page makes exactly one request: the file itself.

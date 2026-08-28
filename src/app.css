@@ -1,21 +1,3 @@
-screen styles, Excel-like table formatting
-    <body>               Master Control panel + 10 tab panels
-    GENERATED DATA       Input items, Output activities, calculation standards, logo
-    MH (model)           port of the Model class of FEED_MH_Calculator_V0_4_OPExcelGrid.py
-                         (the desktop program's filename - the calculation itself
-                          is not specific to any project stage)
-    MHReport             Word (.doc) report generation
-    app                  tab rendering, input handling, state save/restore
-
-  To rebuild the data block after changing the Python program's base data:
-      python3 tools/gen_web_data.py
--->
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>C&amp;I / Telecom M/H Calculator V.0.4</title>
-<style>
 /* M/H Calculator - web styles
    Reuses the colour palette of the desktop (Tkinter) program and its
    Excel-style table formatting. */
@@ -359,3 +341,62 @@ table.sheet tr.grp td { background:#EEF4FA; font-weight:700; }
 table.inputs input.cell.num { text-align:right; }
 .sheet-src { font-size:11px; color:var(--muted); margin-bottom:8px; }
 .recalc-note { font-size:11px; color:var(--muted); margin-left:auto; }
+
+/* ---------- Input sheets: the workbook's three side-by-side blocks ---------- */
+.blockbar {
+  display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+  margin: 10px 0 8px; font-size: 12.5px;
+}
+.blockbar button {
+  border: 1px solid #98A8B8; background: #F7FAFD; color: var(--text);
+  padding: 6px 11px; border-radius: 3px; cursor: pointer; font: inherit;
+}
+.blockbar button b { color: var(--accent); margin-right: 5px; }
+.blockbar button.on { background: var(--hdr-blue); border-color: var(--accent); font-weight: 700; }
+.blockbar button.on b { color: var(--primary); }
+.blockbar .grow { flex: 1 1 auto; }
+.blockbar input[type="search"] {
+  padding: 6px 8px; border: 1px solid #B9C7D6; border-radius: 3px; font: inherit; width: 190px;
+}
+.blockbar .chk { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+
+.gridwrap {
+  overflow: auto; max-height: calc(100vh - 300px); border: 1px solid var(--line);
+}
+table.inputs.grid { font-size: 11.5px; }
+table.inputs.grid th {
+  font-size: 11px; font-weight: 700; line-height: 1.35; padding: 6px 5px;
+  border: 1px solid #2B5478; vertical-align: bottom; min-width: 54px;
+}
+table.inputs.grid th .cl {
+  display: block; font-weight: 400; font-size: 9.5px; opacity: .75; letter-spacing: .5px;
+}
+table.inputs.grid td { padding: 3px 5px; }
+table.inputs.grid tr:nth-child(even) td { background: #FBFDFF; }
+table.inputs.grid td.rn, table.inputs.grid th.rn {
+  color: var(--muted); text-align: center; width: 40px; min-width: 40px; font-size: 10.5px;
+}
+table.inputs.grid th.rn { color: #C9D9E8; }
+table.inputs.grid td.r-sn { text-align: center; white-space: nowrap; font-weight: 700; color: var(--muted); }
+table.inputs.grid td.r-label { line-height: 1.4; min-width: 110px; max-width: 300px; }
+table.inputs.grid td.r-unit { text-align: center; color: var(--muted); white-space: nowrap; }
+table.inputs.grid td.r-note { color: var(--muted); font-size: 10.5px; line-height: 1.4; max-width: 260px; }
+table.inputs.grid td.num { text-align: right; white-space: nowrap; }
+table.inputs.grid td.calc { background: var(--locked); color: var(--muted); font-style: italic; }
+table.inputs.grid tr:nth-child(even) td.calc { background: #EDEDED; }
+table.inputs.grid td.hid, table.inputs.grid th.hid { opacity: .8; }
+table.inputs.grid th.hid { background: #3B5A78; }
+table.inputs.grid input.cell, table.inputs.grid select.cell {
+  padding: 3px 5px; font-size: 11.5px; min-width: 62px;
+}
+table.inputs.grid input.cell { max-width: 110px; }
+table.inputs.grid select.cell { max-width: 150px; min-width: 74px; }
+table.inputs.grid td.mod { background: var(--yellow); }
+table.inputs.grid td.mod input.cell, table.inputs.grid td.mod select.cell {
+  border-color: #C29A00; font-weight: 700;
+}
+
+@media print {
+  .blockbar { display: none !important; }
+  .gridwrap { max-height: none; overflow: visible; border: none; }
+}

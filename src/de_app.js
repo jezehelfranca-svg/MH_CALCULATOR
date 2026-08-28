@@ -9,6 +9,11 @@
 
   var G = new XL.Graph(BUNDLE.cells);
   var META = BUNDLE.meta;
+  /* Which of the two calculators this file is. The proposal and the execution
+   * workbook are different books, not one book with a switch, so each ships as
+   * its own app and keeps its own saved inputs. */
+  var INFO = (typeof APP_INFO !== 'undefined' && APP_INFO) ? APP_INFO
+    : { name: 'M/H Calculator', subtitle: '', key: 'MH_Calculator', source: BUNDLE.source };
 
   var CASES = [
     { key: 'p1', ref: 'Summary!P1', label: 'Case 1 - Outsourcing-Single' },
@@ -283,42 +288,215 @@
   }
 
   /* --------------------------------------------------------------- Input */
+  /* The Input sheets are three tables side by side: Material & General,
+   * Design & Deliverables, and Project Conditions. Each is drawn here as its
+   * own table, with the workbook's own titles and headers, so a cell on screen
+   * is the cell the workbook has. Only literals are editable - anything the
+   * workbook calculates is shown read-only, and cannot drift from Excel. */
+  var inputView = { ci: null, tel: null };
+
+  function viewOf(part) {
+    if (!inputView[part]) inputView[part] = { block: 0, q: '', editOnly: false, adv: false };
+    return inputView[part];
+  }
+
+  function blockTag(title) {
+    var m = /\(([A-C])\)\s*$/.exec(String(title || ''));
+    return m ? m[1] : '';
+  }
+  function blockName(title) {
+    var s = String(title || '').replace(/\s*\([A-C]\)\s*$/, '');
+    var i = s.indexOf(' - ');
+    return (i >= 0 ? s.slice(i + 3) : s).trim();
+  }
+
+  /* A plain number for an input box: no thousands separators to re-parse, and
+   * no float dust from the workbook's own arithmetic. */
+  function inputNum(v) {
+    if (typeof v !== 'number' || !isFinite(v)) return v === null || v === undefined ? '' : String(v);
+    return String(XL.xlround(v, 6));
+  }
+  /* A calculated cell, shown as the workbook shows it: whole where it is
+   * whole, with the decimals it actually has where it is not. */
+  function autoNum(v) {
+    if (typeof v !== 'number' || !isFinite(v)) return esc(v === null || v === undefined ? '' : v);
+    return group(String(XL.xlround(v, 3)));
+  }
+
+  /* An empty cell reads as 0 through the graph, because that is what Excel
+   * does inside a formula. On screen an empty cell is empty. */
+  function cellRaw(ref) {
+    var c = G.cells[ref];
+    if (!c) return '';
+    if (c.f !== undefined) return G.get(ref);
+    return c.v === undefined ? '' : c.v;
+  }
+
+  function rowText(sheet, row, cols) {
+    var out = [];
+    cols.forEach(function (c) {
+      if (c.role === 'sn' || c.role === 'label' || c.role === 'unit' || c.role === 'note') {
+        var v = cellRaw(sheet + '!' + c.c + row);
+        if (v !== null && v !== undefined && v !== '') out.push(String(v));
+      }
+    });
+    return out.join(' ').toLowerCase();
+  }
+
   function renderInput(el, part) {
-    var sheet = part === 'ci' ? 'Input_CI' : 'Input_TEL';
-    var rows = META.inputs[part];
-    var h = '<div class="sheet-title">' + esc(sheet) + '</div>';
-    h += '<div class="phase-intro"><b>Editable values.</b> These are the workbook\'s own input ' +
-      'cells. Changing one recomputes every sheet exactly as Excel would &mdash; quantities, ' +
-      'Project Conditions and the per-activity GEC / 외주-종합 ratios all live here.</div>';
-    h += '<div class="scrollx"><table class="inputs"><thead><tr>' +
-      '<th>Row</th><th>Item</th><th>Detail</th><th>Values</th></tr></thead><tbody>';
-    rows.forEach(function (r) {
-      var labels = r.labels.filter(function (x) { return x; });
-      h += '<tr><td class="ctr">' + r.row + '</td>' +
-        '<td>' + esc(labels[0] || '') + '</td>' +
-        '<td class="detail">' + esc(labels.slice(1).join(' / ')) + '</td><td>';
-      r.cells.forEach(function (c) {
-        var ref = sheet + '!' + c.col + r.row;
-        h += '<label class="nowrap" style="display:inline-block;margin:0 8px 4px 0;">' +
-          '<span style="font-size:10.5px;color:#506980">' + c.col + '</span> ' +
-          '<input class="cell num" type="text" inputmode="decimal" style="width:88px" ' +
-          'data-ref="' + esc(ref) + '" value="' + esc(val(ref)) + '"></label>';
+    var meta = META.inputs[part];
+    var v = viewOf(part);
+    if (v.block >= meta.blocks.length) v.block = 0;
+    var sheet = meta.sheet;
+    var blk = meta.blocks[v.block];
+
+    var h = '<div class="sheet-title">' + esc(sheet) + ' &mdash; ' + esc(meta.title) + '</div>';
+    h += '<div class="phase-intro"><b>These are the workbook\'s own input cells.</b> ' +
+      'Change one and every sheet recomputes exactly as Excel would. White boxes are ' +
+      'yours to set; shaded cells are calculated by the workbook and shown for reference. ' +
+      'The ratio columns hold fractions the way the sheet stores them &mdash; 0.3 is 30%.</div>';
+
+    h += '<div class="blockbar">';
+    meta.blocks.forEach(function (b, i) {
+      h += '<button type="button" data-block="' + i + '" class="' + (i === v.block ? 'on' : '') +
+        '"><b>' + esc(blockTag(b.title) || String(i + 1)) + '</b> ' + esc(blockName(b.title)) +
+        '</button>';
+    });
+    h += '<span class="grow"></span>';
+    h += '<input type="search" id="in-q" placeholder="Filter rows…" value="' + esc(v.q) + '">';
+    h += '<label class="chk"><input type="checkbox" id="in-edit"' + (v.editOnly ? ' checked' : '') +
+      '> Editable rows only</label>';
+    h += '<label class="chk"><input type="checkbox" id="in-adv"' + (v.adv ? ' checked' : '') +
+      '> Hidden columns</label>';
+    h += '</div>';
+
+    var cols = blk.cols.filter(function (c) { return v.adv || !c.hidden; });
+    var q = v.q.trim().toLowerCase();
+
+    h += '<div class="gridwrap"><table class="inputs grid">';
+    h += '<thead><tr><th class="rn">Row</th>';
+    cols.forEach(function (c) {
+      h += '<th class="r-' + c.role + (c.hidden ? ' hid' : '') + '">' +
+        esc(c.h || '') + '<span class="cl">' + c.c + '</span></th>';
+    });
+    h += '</tr></thead><tbody>';
+
+    var shown = 0;
+    blk.rows.forEach(function (r) {
+      var edits = r.e || {};
+      var editable = Object.keys(edits).some(function (k) { return edits[k].k !== 'calc'; });
+      if (v.editOnly && !editable) return;
+      if (q && rowText(sheet, r.r, blk.cols).indexOf(q) < 0) return;
+      shown += 1;
+      h += '<tr><td class="rn">' + r.r + '</td>';
+      cols.forEach(function (c) {
+        var ref = sheet + '!' + c.c + r.r;
+        var raw = cellRaw(ref);
+        var kind = edits[c.c];
+        var cls = 'r-' + c.role + (c.hidden ? ' hid' : '');
+        if (!kind || kind.k === 'calc') {
+          var isNum = typeof raw === 'number';
+          var body = kind ? autoNum(raw) : esc(raw === null || raw === undefined ? '' : raw);
+          h += '<td class="' + cls + (kind ? ' calc' : '') + (isNum ? ' num' : '') + '"' +
+            (kind ? ' data-calc="' + esc(ref) + '"' : '') + '>' + body + '</td>';
+        } else if (kind.k === 'sel') {
+          h += '<td class="' + cls + '"><select class="cell" data-ref="' + esc(ref) + '">' +
+            kind.o.map(function (o) {
+              return '<option' + (String(raw).trim() === o ? ' selected' : '') + '>' + esc(o) +
+                '</option>';
+            }).join('') + '</select></td>';
+        } else {
+          h += '<td class="' + cls + '"><input class="cell num" type="text" inputmode="decimal" ' +
+            'data-ref="' + esc(ref) + '" value="' + esc(inputNum(raw)) + '"></td>';
+        }
       });
-      h += '</td></tr>';
+      h += '</tr>';
     });
     h += '</tbody></table></div>';
+    if (!shown) h += '<p class="hint" style="padding:10px 2px">No rows match this filter.</p>';
+    h += '<p class="hint" style="padding:6px 2px">' + shown + ' of ' + blk.rows.length +
+      ' rows &middot; block ' + esc(blk.title) + ' &middot; sheet columns ' +
+      blk.cols[0].c + '&ndash;' + blk.cols[blk.cols.length - 1].c + '</p>';
     el.innerHTML = h;
+    markEdited(el);
+    bindInput(el, part);
+  }
+
+  /* Cells that differ from the workbook's own value are flagged, so what you
+   * changed is visible at a glance and on a printout. */
+  function markEdited(el) {
+    el.querySelectorAll('.cell[data-ref]').forEach(function (f) {
+      var ref = f.dataset.ref, c = G.cells[ref];
+      var now = c && c.v !== undefined ? c.v : null;
+      f.parentNode.classList.toggle('mod', BASELINE[ref] !== undefined && BASELINE[ref] !== now);
+    });
+  }
+
+  function refreshInputCells(el) {
+    el.querySelectorAll('td[data-calc]').forEach(function (td) {
+      td.innerHTML = autoNum(cellRaw(td.dataset.calc));
+    });
+    markEdited(el);
+  }
+
+  /* An edit patches this sheet in place rather than redrawing it, so the box
+   * you are typing in keeps the caret while every other tab is marked stale. */
+  function applyEdit(el, ref, value) {
+    G.set(ref, value);
+    G.invalidate();
+    writeControls();
+    TABS.forEach(function (t) { dirty[t.id] = true; });
+    dirty[activeTab] = false;
+    refreshInputCells(el);
+    saveState(true);
+  }
+
+  function bindInput(el, part) {
+    var v = viewOf(part);
+    el.querySelectorAll('button[data-block]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        v.block = parseInt(b.getAttribute('data-block'), 10);
+        renderInput(el, part);
+      });
+    });
+    var q = el.querySelector('#in-q');
+    var timer = null;
+    q.addEventListener('input', function () {
+      clearTimeout(timer);
+      timer = setTimeout(function () {
+        v.q = q.value;
+        renderInput(el, part);
+        var box = el.querySelector('#in-q');
+        box.focus();
+        box.setSelectionRange(box.value.length, box.value.length);
+      }, 220);
+    });
+    el.querySelector('#in-edit').addEventListener('change', function (e) {
+      v.editOnly = e.target.checked; renderInput(el, part);
+    });
+    el.querySelector('#in-adv').addEventListener('change', function (e) {
+      v.adv = e.target.checked; renderInput(el, part);
+    });
 
     el.querySelectorAll('input.cell').forEach(function (inp) {
       inp.addEventListener('change', function () {
         var raw = inp.value.trim();
         var n = raw === '' ? 0 : parseFloat(raw.replace(/,/g, ''));
-        if (isNaN(n)) { toast('Numbers only.'); inp.focus(); return; }
-        G.set(inp.dataset.ref, n);
-        refreshAll();
-        saveState(true);
+        if (isNaN(n)) {
+          toast('Numbers only.');
+          inp.value = inputNum(cellRaw(inp.dataset.ref));
+          inp.focus();
+          return;
+        }
+        inp.value = inputNum(n);
+        applyEdit(el, inp.dataset.ref, n);
       });
       inp.addEventListener('keydown', function (e) { if (e.key === 'Enter') inp.blur(); });
+    });
+    el.querySelectorAll('select.cell').forEach(function (sel) {
+      sel.addEventListener('change', function () {
+        applyEdit(el, sel.dataset.ref, sel.value);
+      });
     });
   }
 
@@ -365,7 +543,7 @@
         body.split('\n').map(function (l) { return '<li>' + esc(l) + '</li>'; }).join('') +
         '</ul></div>';
     }
-    var h = '<div class="guide"><h1>Detail Engineering M/H Calculator</h1>';
+    var h = '<div class="guide"><h1>' + esc(INFO.name) + '</h1>';
     h += '<div class="sub">Built from ' + esc(BUNDLE.source) + '</div>';
     h += '<h2>How this differs from a re-implementation</h2>';
     h += block('It runs the workbook, it does not copy it',
@@ -381,14 +559,25 @@
       'Switching it in Master Control swaps the rates exactly as the workbook does, per discipline.');
     h += '<h2>Using it</h2>';
     h += block('1. Set the Case and version', 'Master Control carries the Case per discipline and the Outsourcing Minimization switch.');
-    h += block('2. Enter quantities', 'Input_CI and Input_TEL hold the workbook\'s own input cells. Edit and everything recomputes.');
+    h += block('2. Enter quantities and conditions',
+      'Input_CI and Input_TEL are drawn as the workbook draws them: three blocks side by side.\n' +
+      'A - Material & General, B - Design & Deliverables, C - Project Conditions. Pick a block with the buttons above the table.\n' +
+      'White boxes are the workbook\'s literal cells and are yours to change; shaded italic cells are calculated and shown for reference.\n' +
+      'Project Condition selectors carry the workbook\'s own dropdown lists, so a condition can only be set to a value the sheet accepts.\n' +
+      'The ratio columns hold fractions as the sheet stores them - 0.3 means 30%.\n' +
+      'Anything you change is highlighted, and the Row column gives the Excel row so a figure can be traced back to the workbook.\n' +
+      'Filter rows, or tick Editable rows only, to cut a long block down to what you are working on.');
     h += block('3. Read the result', 'Summary is the reporting view; OP1 shows all three Cases side by side; OP2-1/2/3 are the per-Case reports.');
+    h += block('Saved inputs stay with this calculator',
+      'Save inputs keeps your edits in this browser under this calculator\'s own key, so the proposal and the execution app never mix.\n' +
+      'Export inputs writes the changed cells to a JSON file - only what differs from the workbook, so it stays readable.\n' +
+      'Reset to workbook values puts every cell back to the figure the source workbook shipped with.');
     h += '</div>';
     el.innerHTML = h;
   }
 
   /* --------------------------------------------------------------- state */
-  var STORAGE_KEY = 'DE_MH_Calculator_State';
+  var STORAGE_KEY = INFO.key + '_State';
 
   function editedCells() {
     var out = {};
@@ -454,7 +643,7 @@
     $('btn-save').addEventListener('click', function () { saveState(false); });
     $('btn-load').addEventListener('click', function () { loadState(true); });
     $('btn-export').addEventListener('click', function () {
-      download('DE_MH_Calculator_Inputs.json', JSON.stringify(editedCells(), null, 2), 'application/json');
+      download(INFO.key + '_Inputs.json', JSON.stringify(editedCells(), null, 2), 'application/json');
       toast('Edited inputs exported.');
     });
     $('btn-import').addEventListener('click', function () { $('file-import').click(); });

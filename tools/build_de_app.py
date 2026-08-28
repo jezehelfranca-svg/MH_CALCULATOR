@@ -29,7 +29,7 @@ def logo_b64():
 
 SHELL = """<!DOCTYPE html>
 <!--
-  Detail Engineering M/H Calculator - single-file web application
+  %(name)s - single-file web application
   ==============================================================
   Built from %(source)s by tools/build_de_app.py.
 
@@ -49,7 +49,7 @@ SHELL = """<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Detail Engineering M/H Calculator</title>
+<title>%(name)s</title>
 <style>
 %(css)s
 </style>
@@ -57,7 +57,7 @@ SHELL = """<!DOCTYPE html>
 <body>
 
 <div class="app-title">
-  <span>Detail Engineering M/H Calculator &mdash; 실행사업 (Rev.3)</span>
+  <span>%(name)s &mdash; %(subtitle)s</span>
   <span class="ver">HYUNDAI ENGINEERING</span>
 </div>
 
@@ -107,6 +107,7 @@ SHELL = """<!DOCTYPE html>
 <div id="toast" role="status" aria-live="polite"></div>
 
 <script>
+var APP_INFO = %(info)s;
 var HYUNDAI_LOGO_B64 = '%(logo)s';
 </script>
 
@@ -132,9 +133,23 @@ PANEL_IDS = ['tab-summary', 'tab-op1-ci', 'tab-op1-tel', 'tab-op2-1', 'tab-op2-2
              'tab-guide']
 
 
+def app_info(src, out):
+    """The two workbooks build two different calculators, and each has to say so
+    - in its title, in its Guide, and in the storage key it saves inputs under,
+    so a browser holding both does not mix them up."""
+    proposal = 'propo' in src.name.lower() or 'propo' in out.stem.lower()
+    return {
+        'name': 'Proposal M/H Calculator' if proposal else 'Detail Engineering M/H Calculator',
+        'subtitle': '견적/입찰 Proposal (Rev.3)' if proposal else '실행사업 (Rev.3)',
+        'key': out.stem,
+        'source': src.name,
+    }
+
+
 def main():
     src = Path(sys.argv[1])
     out = Path(sys.argv[2]) if len(sys.argv) > 2 else ROOT / 'DE_MH_Calculator.html'
+    info = app_info(src, out)
 
     bundle_path = out.with_suffix('.bundle.json')
     subprocess.check_call([sys.executable, str(ROOT / 'tools' / 'build_de_bundle.py'),
@@ -144,6 +159,9 @@ def main():
 
     html = SHELL % {
         'source': src.name,
+        'name': info['name'],
+        'subtitle': info['subtitle'],
+        'info': json.dumps(info, ensure_ascii=False),
         'css': (ROOT / 'src' / 'app.css').read_text(encoding='utf-8').rstrip(),
         'panels': '\n'.join('      <section class="tabpanel" id="%s"></section>' % p
                             for p in PANEL_IDS),

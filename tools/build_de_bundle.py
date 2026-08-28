@@ -15,7 +15,11 @@ import re
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
 import openpyxl
+
+import inputmeta
 
 # Sheets the calculator needs. The OP2 report sheets are views of OP1 and are
 # rendered by the app, so their formulas are not shipped.
@@ -85,31 +89,6 @@ def activity_rows(wbv, sheet):
     return out
 
 
-def input_rows(wbf, wbv, sheet):
-    """Editable Input cells: literals on the Input sheets, with their row labels."""
-    f, v = wbf[sheet], wbv[sheet]
-    out = []
-    for r in range(1, v.max_row + 1):
-        labels = [v.cell(r, c).value for c in range(1, 6)]
-        if not any(labels):
-            continue
-        editable = []
-        for c in range(1, min(v.max_column, 40) + 1):
-            fx = ftext(f.cell(r, c).value)
-            if fx and fx.startswith('='):
-                continue
-            val = v.cell(r, c).value
-            if isinstance(val, (int, float)):
-                editable.append({'col': openpyxl.utils.get_column_letter(c), 'v': val})
-        if editable:
-            out.append({
-                'row': r,
-                'labels': [str(x).strip() if x is not None else '' for x in labels],
-                'cells': editable,
-            })
-    return out
-
-
 def main():
     src = Path(sys.argv[1])
     out = Path(sys.argv[2]) if len(sys.argv) > 2 else Path('de_bundle.json')
@@ -123,8 +102,8 @@ def main():
         'meta': {
             'activities': {'ci': activity_rows(wbv, 'OP1_CI'),
                            'tel': activity_rows(wbv, 'OP1_TEL')},
-            'inputs': {'ci': input_rows(wbf, wbv, 'Input_CI'),
-                       'tel': input_rows(wbf, wbv, 'Input_TEL')},
+            'inputs': {'ci': inputmeta.input_sheet(wbf, wbv, 'Input_CI'),
+                       'tel': inputmeta.input_sheet(wbf, wbv, 'Input_TEL')},
         },
     }
     out.write_text(json.dumps(bundle, ensure_ascii=False, separators=(',', ':')), encoding='utf-8')
@@ -136,8 +115,13 @@ def main():
     print('%-22s %6d cached values for checking' % (exp.name, len(expect)))
     print('activities  C&I %d  TEL %d' % (len(bundle['meta']['activities']['ci']),
                                           len(bundle['meta']['activities']['tel'])))
-    print('input rows  C&I %d  TEL %d' % (len(bundle['meta']['inputs']['ci']),
-                                          len(bundle['meta']['inputs']['tel'])))
+    for part in ('ci', 'tel'):
+        sheet = bundle['meta']['inputs'][part]
+        print('%-11s %s' % (sheet['sheet'], '  '.join(
+            '%s: %d rows, %d editable' % (
+                b['title'].split('-')[-1].strip()[:28], len(b['rows']),
+                sum(1 for r in b['rows'] for k in r['e'].values() if k['k'] != 'calc'))
+            for b in sheet['blocks'])))
     print('%.0f KB' % (out.stat().st_size / 1024))
 
 
