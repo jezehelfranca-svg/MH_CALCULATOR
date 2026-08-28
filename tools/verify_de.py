@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Recompute OP1_CI / OP1_TEL from their formulas and diff against the workbook.
+"""Recompute the calculated sheets from their formulas and diff against the workbook.
 
 Every OP1 cell is evaluated from its own formula, with references chained back
 through other OP1 cells to the Input sheets and the 산출기준 tables. Nothing is
@@ -15,6 +15,12 @@ import openpyxl
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from xlformula import compile_formula, evaluate, split_ref, Err   # noqa: E402
+
+
+# Sheets recomputed from their formulas; everything else is read as entered.
+RECOMPUTE = {'OP1_CI', 'OP1_TEL', 'Summary',
+             'OP2-1_CI', 'OP2-2_CI', 'OP2-3_CI',
+             'OP2-1_TEL', 'OP2-2_TEL', 'OP2-3_TEL'}
 
 
 def ftext(v):
@@ -46,7 +52,7 @@ class Book:
         key = (s, col, row)
         if key in self.cache:
             return self.cache[key]
-        if not s.startswith('OP1') or key in self.busy:
+        if s not in RECOMPUTE or key in self.busy:
             return self.cached(s, col, row)
         fx = self.formula(s, col, row)
         if not fx or not fx.startswith('='):
@@ -72,15 +78,14 @@ def main():
     path = Path(sys.argv[1])
     bk = Book(path)
     # every numeric column of the OP1 sheets
-    COLS = ['G', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T',
-            'U', 'V', 'W', 'X', 'Y', 'Z', 'AA', 'AB', 'AC']
     grand_total = grand_bad = 0
-    for sheet in ('OP1_CI', 'OP1_TEL'):
+    for sheet in sorted(RECOMPUTE):
         ws = bk.f[sheet]
+        cols = [openpyxl.utils.get_column_letter(c) for c in range(1, ws.max_column + 1)]
         total = bad = 0
         problems = []
-        for row in range(15, ws.max_row + 1):
-            for col in COLS:
+        for row in range(1, ws.max_row + 1):
+            for col in cols:
                 fx = bk.formula(sheet, col, row)
                 if not fx or not fx.startswith('='):
                     continue
@@ -95,7 +100,7 @@ def main():
                         problems.append((row, col, exp, got, fx[:60]))
         grand_total += total
         grand_bad += bad
-        print('%-9s %5d formula cells recomputed, %d mismatched %s'
+        print('%-11s %5d formula cells recomputed, %d mismatched %s'
               % (sheet, total, bad, 'ALL MATCH' if bad == 0 else '<-- LOOK'))
         for p in problems:
             print('     r%-4d %-3s excel=%-12s mine=%-12s %s' % p)
