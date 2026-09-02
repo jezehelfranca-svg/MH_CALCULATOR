@@ -607,8 +607,8 @@ var XL = (function () {
     if (s === 'STANDARD VER.' || s === '일반 VER.') return 'STANDARD VER.';
     if (s === 'OUTSOURCING MINIMIZATION VER.' || s === '외주최소화 VER.') return 'OUTSOURCING MINIMIZATION VER.';
     if (s === 'CASE 1: OUTSOURCING - SPECIALIZED' || s === 'OUTSOURCING - SPECIALIZED' || s === '외주-단종') return 'CASE 1: OUTSOURCING - SPECIALIZED';
-    if (s === 'CASE 2: Outsourcing (Specialized) & OUTSOURCING - SPECIALIZED' || s === 'Outsourcing (Specialized) & OUTSOURCING - SPECIALIZED' || s === 'Outsourcing (Specialized) & 외주-단종') return 'CASE 2: Outsourcing (Specialized) & OUTSOURCING - SPECIALIZED';
-    if (s === 'CASE 3: Outsourcing (Specialized) & OUTSOURCING - GENERAL' || s === 'Outsourcing (Specialized) & OUTSOURCING - GENERAL' || s === 'Outsourcing (Specialized) & 외주-종합') return 'CASE 3: Outsourcing (Specialized) & OUTSOURCING - GENERAL';
+    if (s === 'CASE 2: OUTSOURCING (GENERAL)' || s === 'OUTSOURCING (GENERAL)' || s === '외주-종합') return 'CASE 2: OUTSOURCING (GENERAL)';
+    if (s === 'CASE 3: OUTSOURCING (SPECIALIZED + GENERAL)' || s === 'OUTSOURCING (SPECIALIZED + GENERAL)') return 'CASE 3: OUTSOURCING (SPECIALIZED + GENERAL)';
     return s;
   }
 
@@ -859,8 +859,150 @@ var XL = (function () {
 (function () {
   'use strict';
 
-  var G = new XL.Graph(BUNDLE.cells);
   var META = BUNDLE.meta;
+
+  /*
+   * Allocation model migration
+   * --------------------------
+   * The workbook embedded in this page was created when GEC was a separate
+   * execution bucket. V2 originally renamed that bucket to "Specialized",
+   * which changed labels without moving the allocation. Keep the legacy
+   * workbook columns for compatibility, but reinterpret every former GEC
+   * amount as Outsourcing (General) and use the General capability/rate.
+   */
+  function rewriteFormerGecText(text) {
+    if (typeof text !== 'string') return text;
+    return text
+      .replace(/Outsourcing \(Specialized\)/g, 'Outsourcing (General)')
+      .replace(/Outsourcing-Outsourcing \(General\)/g, 'Outsourcing-General')
+      .replace(/Outsourcing \(General\)Cost/g, 'Outsourcing General Cost');
+  }
+
+  function rewriteFormerGecMetadata(node) {
+    if (Array.isArray(node)) {
+      for (var i = 0; i < node.length; i++) {
+        if (typeof node[i] === 'string') node[i] = rewriteFormerGecText(node[i]);
+        else rewriteFormerGecMetadata(node[i]);
+      }
+      return;
+    }
+    if (!node || typeof node !== 'object') return;
+    Object.keys(node).forEach(function (key) {
+      if (typeof node[key] === 'string') node[key] = rewriteFormerGecText(node[key]);
+      else rewriteFormerGecMetadata(node[key]);
+    });
+  }
+
+  function installGeneralAllocationTransfer() {
+    Object.keys(BUNDLE.cells).forEach(function (ref) {
+      var cell = BUNDLE.cells[ref];
+
+      // Parenthesized "Specialized" labels outside Summary came from the
+      // former GEC fields. Summary's Specialized column is a genuine bucket.
+      if (ref.indexOf('Summary!') !== 0) {
+        if (typeof cell.v === 'string') cell.v = rewriteFormerGecText(cell.v);
+        if (typeof cell.f === 'string') cell.f = rewriteFormerGecText(cell.f);
+      }
+
+      if (typeof cell.f === 'string') {
+        // Former GEC allocations now use Outsource General assumptions.
+        cell.f = cell.f
+          .replace(/Input_CI!\$?AH\$?75/g, 'Input_CI!$AH$76')
+          .replace(/Input_TEL!\$?AG\$?37/g, 'Input_TEL!$AG$38')
+          .replace(/Input_CI!\$?AH\$?81/g, 'Input_CI!$AH$80')
+          .replace(/Input_TEL!\$?AG\$?43/g, 'Input_TEL!$AG$42')
+          .replace(/OP1_CI!\$?F\$?132/g, 'OP1_CI!$F$131')
+          .replace(/OP1_TEL!\$?F\$?117/g, 'OP1_TEL!$F$116');
+      }
+    });
+
+    rewriteFormerGecMetadata(META);
+
+    // Hide retired GEC-specific assumptions from the normal input form. They
+    // remain in the embedded grid so older saved-state files still import.
+    var retiredRefs = {
+      'Input_CI!AH75': true,
+      'Input_CI!AH81': true,
+      'Input_TEL!AG37': true,
+      'Input_TEL!AG43': true
+    };
+    ['inputs_ci', 'inputs_tel'].forEach(function (key) {
+      META[key].sec_c = META[key].sec_c.filter(function (item) {
+        return !retiredRefs[item.input_ref || item.sel_ref];
+      });
+    });
+
+    // Make the raw grid explicit about the retired compatibility fields.
+    BUNDLE.cells['Input_CI!AF75'] = { v: 'Legacy GEC capability (retired)' };
+    BUNDLE.cells['Input_CI!AG75'] = { v: 'Transferred to Outsource General; row 76 is used' };
+    BUNDLE.cells['Input_CI!AG81'] = { v: 'Legacy GEC rate (retired; row 80 is used)' };
+    BUNDLE.cells['Input_TEL!AA37'] = { v: 'Legacy GEC capability (retired)' };
+    BUNDLE.cells['Input_TEL!AC37'] = { v: 'Transferred to Outsource General; row 38 is used' };
+    BUNDLE.cells['Input_TEL!AC43'] = { v: 'Legacy GEC rate (retired; row 42 is used)' };
+
+    // Summary columns: Internal, Specialized, General.
+    var summaryModels = [
+      { caseRef: 'C2', sheet: 'OP1_CI', rows: [128, 129, 130], cols: ['C', 'D', 'E'] },
+      { caseRef: 'C3', sheet: 'OP1_TEL', rows: [113, 114, 115], cols: ['F', 'G', 'H'] }
+    ];
+    summaryModels.forEach(function (model) {
+      model.rows.forEach(function (row, idx) {
+        var summaryRow = 21 + idx;
+        var p = model.sheet + '!';
+        BUNDLE.cells['Summary!' + model.cols[0] + summaryRow] = {
+          f: '=IF(' + model.caseRef + '=P1,' + p + 'J' + row + ',IF(' + model.caseRef + '=P2,' + p + 'N' + row + ',' + p + 'L' + row + '))'
+        };
+        BUNDLE.cells['Summary!' + model.cols[1] + summaryRow] = {
+          f: '=IF(' + model.caseRef + '=P1,' + p + 'V' + row + ',IF(' + model.caseRef + '=P2,0,' + p + 'X' + row + '))'
+        };
+        BUNDLE.cells['Summary!' + model.cols[2] + summaryRow] = {
+          f: '=IF(' + model.caseRef + '=P1,0,IF(' + model.caseRef + '=P2,' + p + 'P' + row + '+' + p + 'Z' + row + ',' + p + 'P' + row + '))'
+        };
+      });
+    });
+
+    // Keep the workbook-like OP1 total columns aligned with the V2 cases.
+    [
+      { part: 'ci', sheet: 'OP1_CI', totalRow: 128, labelRow: 127 },
+      { part: 'tel', sheet: 'OP1_TEL', totalRow: 113, labelRow: 112 }
+    ].forEach(function (cfg) {
+      var seen = {};
+      META['activities_' + cfg.part].forEach(function (item) { seen[item.row] = true; });
+      seen[cfg.totalRow] = true;
+      Object.keys(seen).forEach(function (row) {
+        BUNDLE.cells[cfg.sheet + '!AB' + row] = { f: '=N' + row + '+P' + row + '+Z' + row };
+        BUNDLE.cells[cfg.sheet + '!AC' + row] = { f: '=L' + row + '+P' + row + '+X' + row };
+      });
+      BUNDLE.cells[cfg.sheet + '!AB' + cfg.labelRow] = { v: 'TOTAL (Outsourcing-General)' };
+      BUNDLE.cells[cfg.sheet + '!AC' + cfg.labelRow] = { v: 'TOTAL (Outsourcing-Specialized + General)' };
+    });
+
+    // Replace the mechanically renamed guide text with the actual V2 model.
+    var guideCopy = {
+      18: "- Former GEC allocation inputs are retained for compatibility and assigned to Outsource General.",
+      21: '- Case 1~3 Internal / Specialized / General M/H is calculated automatically from the inputs.',
+      31: '- Output1 Case 2 calculates Outsource General M/H, including all former GEC allocations.',
+      36: '- Output1 Case 3 calculates Specialized + General M/H; former GEC allocations are General.',
+      43: '- HEC plus Outsourcing-Specialized execution case.',
+      46: '2. Case 2 (Outsourcing-General Case)',
+      47: '- HEC plus Outsourcing-General execution case.',
+      48: '- All former GEC internal/external allocations are included in Outsource General.',
+      49: '- No Specialized allocation is used in this case.',
+      51: '3. Case 3 (Outsourcing-Specialized + General Case)',
+      52: '- HEC, Outsourcing-Specialized, and Outsourcing-General execution case.',
+      53: '- Former GEC internal/external allocations are included in Outsource General.',
+      54: '- Specialized subcontractor allocations remain in Outsourcing-Specialized.'
+    };
+    META.guide.forEach(function (item) {
+      if (!guideCopy[item.row]) return;
+      if (item.colB && !item.colC) item.colB = guideCopy[item.row];
+      else item.colC = guideCopy[item.row];
+    });
+  }
+
+  installGeneralAllocationTransfer();
+
+  var G = new XL.Graph(BUNDLE.cells);
 
   var CASES = [
     { key: 'p1', ref: 'Summary!P1', label: 'Case 1: Outsourcing (Specialized)' },
@@ -904,6 +1046,58 @@ var XL = (function () {
   function val(ref) { return G.get(ref); }
   function numOf(ref) { var v = G.get(ref); return typeof v === 'number' ? v : 0; }
 
+  var ALLOCATION_CONFIG = {
+    ci: {
+      sheet: 'OP1_CI',
+      totalRow: 128,
+      specializedRateRef: 'OP1_CI!F130',
+      generalRateRef: 'OP1_CI!F131'
+    },
+    tel: {
+      sheet: 'OP1_TEL',
+      totalRow: 113,
+      specializedRateRef: 'OP1_TEL!F115',
+      generalRateRef: 'OP1_TEL!F116'
+    }
+  };
+
+  function allocationAt(part, caseKey, row) {
+    var cfg = ALLOCATION_CONFIG[part];
+    var p = cfg.sheet + '!';
+    var allocation;
+
+    if (caseKey === 'p1') {
+      allocation = {
+        internal: numOf(p + 'J' + row),
+        specialized: numOf(p + 'V' + row),
+        general: 0
+      };
+    } else if (caseKey === 'p2') {
+      allocation = {
+        internal: numOf(p + 'N' + row),
+        specialized: 0,
+        general: numOf(p + 'P' + row) + numOf(p + 'Z' + row)
+      };
+    } else {
+      allocation = {
+        internal: numOf(p + 'L' + row),
+        specialized: numOf(p + 'X' + row),
+        general: numOf(p + 'P' + row)
+      };
+    }
+
+    allocation.total = allocation.internal + allocation.specialized + allocation.general;
+    return allocation;
+  }
+
+  function subcontractCosts(part, caseKey) {
+    var cfg = ALLOCATION_CONFIG[part];
+    var allocation = allocationAt(part, caseKey, cfg.totalRow);
+    var specialized = allocation.specialized * numOf(cfg.specializedRateRef);
+    var general = allocation.general * numOf(cfg.generalRateRef);
+    return { specialized: specialized, general: general, total: specialized + general };
+  }
+
   function group(s) {
     var parts = String(s).split('.');
     parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
@@ -935,12 +1129,26 @@ var XL = (function () {
     for (var i = 0; i < CASES.length; i++) {
       if (String(val(CASES[i].ref)).trim() === sel || CASES[i].label === sel) return CASES[i].key;
     }
+
+    // Saved files from the GEC-era calculator retain the old case names.
+    var legacy = sel.toUpperCase();
+    if (legacy.indexOf('GEC') >= 0 && /CASE\s*2/.test(legacy)) return 'p3';
+    if (legacy.indexOf('GEC') >= 0 && /CASE\s*3/.test(legacy)) return 'p2';
     return 'p1';
   }
 
   function caseRefFor(key) {
     for (var i = 0; i < CASES.length; i++) if (CASES[i].key === key) return CASES[i].ref;
     return CASES[0].ref;
+  }
+
+  function migrateLegacyCaseSelections() {
+    ['ci', 'tel'].forEach(function (part) {
+      var ref = part === 'ci' ? 'Summary!C2' : 'Summary!C3';
+      var selected = String(val(ref) || '');
+      if (selected.toUpperCase().indexOf('GEC') < 0) return;
+      G.set(ref, val(caseRefFor(currentCase(part))));
+    });
   }
 
   function applyScopeToggles(part) {
@@ -1025,8 +1233,8 @@ var XL = (function () {
     // Sidebar KPIs
     var totMh = numOf('Summary!C12') + numOf('Summary!D12') + numOf('Summary!E12');
     var totMm = numOf('Summary!C13') + numOf('Summary!D13') + numOf('Summary!E13');
-    var cCost = currentCase('ci') === 'p1' ? numOf('OP1_CI!U132') : (currentCase('ci') === 'p2' ? numOf('OP1_CI!Y132') : numOf('OP1_CI!O132') + numOf('OP1_CI!Y132'));
-    var tCost = currentCase('tel') === 'p1' ? numOf('OP1_TEL!U117') : (currentCase('tel') === 'p2' ? numOf('OP1_TEL!Y117') : numOf('OP1_TEL!O117') + numOf('OP1_TEL!Y117'));
+    var cCost = subcontractCosts('ci', currentCase('ci')).total;
+    var tCost = subcontractCosts('tel', currentCase('tel')).total;
     
     var elTotMh = $('kpi-tot-mh');
     if (elTotMh) elTotMh.textContent = mh(totMh);
@@ -1125,20 +1333,22 @@ var XL = (function () {
     h += '<thead><tr><th>Classification / Item</th><th>Total</th><th>Internal (HEC)</th><th class="gec">Outsourcing (Specialized)</th><th>Outsourcing (General)</th></tr></thead><tbody>';
     
     var rows1 = [
-      { name: 'M/H (Man-Hours)', c_tot: 'Summary!C12', c_int: 'Summary!C21', c_gec: 'Summary!D21', c_ext: 'Summary!E21', t_tot: null, t_int: 'Summary!F21', t_gec: 'Summary!G21', t_ext: 'Summary!H21', is_mh: true },
-      { name: 'M/M (Man-Months)', c_tot: 'Summary!C13', c_int: 'Summary!C22', c_gec: 'Summary!D22', c_ext: 'Summary!E22', t_tot: null, t_int: 'Summary!F22', t_gec: 'Summary!G22', t_ext: 'Summary!H22', is_mh: false, dec: 1 },
-      { name: 'Staffing / Headcount (Persons/M)', c_tot: 'Summary!C14', c_int: 'Summary!C23', c_gec: 'Summary!D23', c_ext: 'Summary!E23', t_tot: null, t_int: 'Summary!F23', t_gec: 'Summary!G23', t_ext: 'Summary!H23', is_mh: false, dec: 1 }
+      { name: 'M/H (Man-Hours)', ciRow: 128, telRow: 113, is_mh: true },
+      { name: 'M/M (Man-Months)', ciRow: 129, telRow: 114, is_mh: false, dec: 1 },
+      { name: 'Staffing / Headcount (Persons/M)', ciRow: 130, telRow: 115, is_mh: false, dec: 1 }
     ];
 
     rows1.forEach(function (r) {
-      var intV = numOf(r.c_int) + numOf(r.t_int);
-      var gecV = numOf(r.c_gec) + numOf(r.t_gec);
-      var extV = numOf(r.c_ext) + numOf(r.t_ext);
-      var totV = intV + gecV + extV;
+      var cAllocation = allocationAt('ci', currentCase('ci'), r.ciRow);
+      var tAllocation = allocationAt('tel', currentCase('tel'), r.telRow);
+      var intV = cAllocation.internal + tAllocation.internal;
+      var specV = cAllocation.specialized + tAllocation.specialized;
+      var generalV = cAllocation.general + tAllocation.general;
+      var totV = intV + specV + generalV;
       var f = r.is_mh ? mh : function (x) { return fmt(x, r.dec); };
       h += '<tr><td class="b">' + r.name + '</td><td class="num b tot">' + f(totV) + '</td>' +
-        '<td class="num int">' + f(intV) + '</td><td class="num gec">' + f(gecV) + '</td>' +
-        '<td class="num ext">' + f(extV) + '</td></tr>';
+        '<td class="num int">' + f(intV) + '</td><td class="num gec">' + f(specV) + '</td>' +
+        '<td class="num ext">' + f(generalV) + '</td></tr>';
     });
     h += '</tbody></table></div>';
 
@@ -1148,17 +1358,15 @@ var XL = (function () {
     h += '<thead><tr><th rowspan="2">Classification / Item</th><th colspan="3" class="c1">C&amp;I Engineering Part [' + esc(cCaseLabel) + ']</th><th colspan="3" class="c2">Telecom Engineering Part [' + esc(tCaseLabel) + ']</th></tr>';
     h += '<tr><th class="c1">Internal (HEC)</th><th class="c1 gec">Outsourcing (Specialized)</th><th class="c1">Outsourcing (General)</th><th class="c2">Internal (HEC)</th><th class="c2 gec">Outsourcing (Specialized)</th><th class="c2">Outsourcing (General)</th></tr></thead><tbody>';
 
-    var rows2 = [
-      { name: 'M/H (Man-Hours)', c_int: 'Summary!C21', c_gec: 'Summary!D21', c_ext: 'Summary!E21', t_int: 'Summary!F21', t_gec: 'Summary!G21', t_ext: 'Summary!H21', is_mh: true },
-      { name: 'M/M (Man-Months)', c_int: 'Summary!C22', c_gec: 'Summary!D22', c_ext: 'Summary!E22', t_int: 'Summary!F22', t_gec: 'Summary!G22', t_ext: 'Summary!H22', is_mh: false, dec: 1 },
-      { name: 'Staffing / Headcount (Persons/M)', c_int: 'Summary!C23', c_gec: 'Summary!D23', c_ext: 'Summary!E23', t_int: 'Summary!F23', t_gec: 'Summary!G23', t_ext: 'Summary!H23', is_mh: false, dec: 1 }
-    ];
+    var rows2 = rows1;
 
     rows2.forEach(function (r) {
+      var cAllocation = allocationAt('ci', currentCase('ci'), r.ciRow);
+      var tAllocation = allocationAt('tel', currentCase('tel'), r.telRow);
       var f = r.is_mh ? mh : function (x) { return fmt(x, r.dec); };
       h += '<tr><td class="b">' + r.name + '</td>' +
-        '<td class="num int">' + f(numOf(r.c_int)) + '</td><td class="num gec">' + f(numOf(r.c_gec)) + '</td><td class="num ext">' + f(numOf(r.c_ext)) + '</td>' +
-        '<td class="num int">' + f(numOf(r.t_int)) + '</td><td class="num gec">' + f(numOf(r.t_gec)) + '</td><td class="num ext">' + f(numOf(r.t_ext)) + '</td></tr>';
+        '<td class="num int">' + f(cAllocation.internal) + '</td><td class="num gec">' + f(cAllocation.specialized) + '</td><td class="num ext">' + f(cAllocation.general) + '</td>' +
+        '<td class="num int">' + f(tAllocation.internal) + '</td><td class="num gec">' + f(tAllocation.specialized) + '</td><td class="num ext">' + f(tAllocation.general) + '</td></tr>';
     });
     h += '</tbody></table></div>';
 
@@ -1167,14 +1375,12 @@ var XL = (function () {
     h += '<div class="scrollx"><table class="sheet" style="max-width:860px;">';
     h += '<thead><tr><th>Cost Category</th><th>C&amp;I Engineering</th><th>Telecom Engineering</th><th>Total (KRW)</th></tr></thead><tbody>';
 
-    var cGecCost = currentCase('ci') === 'p1' ? numOf('OP1_CI!V128') * numOf('OP1_CI!F130') : (currentCase('ci') === 'p2' ? 0 : numOf('OP1_CI!P128') * numOf('OP1_CI!F132'));
-    var cExtCost = currentCase('ci') === 'p1' ? 0 : numOf('OP1_CI!Z128') * numOf('OP1_CI!F131');
-    var tGecCost = currentCase('tel') === 'p1' ? numOf('OP1_TEL!V113') * numOf('OP1_TEL!F115') : (currentCase('tel') === 'p2' ? 0 : numOf('OP1_TEL!P113') * numOf('OP1_TEL!F117'));
-    var tExtCost = currentCase('tel') === 'p1' ? 0 : numOf('OP1_TEL!Z113') * numOf('OP1_TEL!F116');
+    var cCosts = subcontractCosts('ci', currentCase('ci'));
+    var tCosts = subcontractCosts('tel', currentCase('tel'));
 
-    h += '<tr><td class="b">Outsourcing (Specialized) Estimated Cost</td><td class="num gec">' + fmt(cGecCost, 0) + ' KRW</td><td class="num gec">' + fmt(tGecCost, 0) + ' KRW</td><td class="num b gec">' + fmt(cGecCost + tGecCost, 0) + ' KRW</td></tr>';
-    h += '<tr><td class="b">Outsourcing (General) Estimated Cost</td><td class="num ext">' + fmt(cExtCost, 0) + ' KRW</td><td class="num ext">' + fmt(tExtCost, 0) + ' KRW</td><td class="num b ext">' + fmt(cExtCost + tExtCost, 0) + ' KRW</td></tr>';
-    h += '<tr class="subtotal"><td class="b">Total Subcontract Cost Estimate</td><td class="num b">' + fmt(cGecCost + cExtCost, 0) + ' KRW</td><td class="num b">' + fmt(tGecCost + tExtCost, 0) + ' KRW</td><td class="num b tot" style="font-size:13px;color:#0B5CAB;">' + fmt(cGecCost + cExtCost + tGecCost + tExtCost, 0) + ' KRW</td></tr>';
+    h += '<tr><td class="b">Outsourcing (Specialized) Estimated Cost</td><td class="num gec">' + fmt(cCosts.specialized, 0) + ' KRW</td><td class="num gec">' + fmt(tCosts.specialized, 0) + ' KRW</td><td class="num b gec">' + fmt(cCosts.specialized + tCosts.specialized, 0) + ' KRW</td></tr>';
+    h += '<tr><td class="b">Outsourcing (General) Estimated Cost</td><td class="num ext">' + fmt(cCosts.general, 0) + ' KRW</td><td class="num ext">' + fmt(tCosts.general, 0) + ' KRW</td><td class="num b ext">' + fmt(cCosts.general + tCosts.general, 0) + ' KRW</td></tr>';
+    h += '<tr class="subtotal"><td class="b">Total Subcontract Cost Estimate</td><td class="num b">' + fmt(cCosts.total, 0) + ' KRW</td><td class="num b">' + fmt(tCosts.total, 0) + ' KRW</td><td class="num b tot" style="font-size:13px;color:#0B5CAB;">' + fmt(cCosts.total + tCosts.total, 0) + ' KRW</td></tr>';
     h += '</tbody></table></div>';
 
     el.innerHTML = h;
@@ -1223,21 +1429,9 @@ var XL = (function () {
       else if (diff === '중' || diff === 'Med') diff = 'Med';
       else if (diff === '하' || diff === 'Low') diff = 'Low';
 
-      // Case 1
-      var c1_int = numOf(sheet + '!J' + rowNum);
-      var c1_ext = numOf(sheet + '!V' + rowNum);
-      var c1_tot = numOf(sheet + '!AA' + rowNum);
-
-      // Case 2
-      var c2_int = numOf(sheet + '!N' + rowNum);
-      var c2_ext = numOf(sheet + '!Z' + rowNum);
-      var c2_tot = c2_int + c2_ext;
-
-      // Case 3
-      var c3_int = numOf(sheet + '!N' + rowNum);
-      var c3_gec = numOf(sheet + '!P' + rowNum);
-      var c3_ext = numOf(sheet + '!Z' + rowNum);
-      var c3_tot = numOf(sheet + '!AC' + rowNum);
+      var c1 = allocationAt(part, 'p1', rowNum);
+      var c2 = allocationAt(part, 'p2', rowNum);
+      var c3 = allocationAt(part, 'p3', rowNum);
 
       var isSubtotal = r.group && String(r.group).indexOf('Subtotal') >= 0;
       var trClass = isSubtotal ? 'subtotal' : (idx % 2 === 0 ? '' : 'odd');
@@ -1263,46 +1457,37 @@ var XL = (function () {
         '<td class="ctr">' + esc(r.unit || '') + '</td>' +
         '<td class="num">' + qtyHtml + '</td>' +
         '<td class="ctr">' + (isSubtotal ? '' : esc(diff)) + '</td>' +
-        '<td class="num c1">' + mh(c1_int) + '</td>' +
-        '<td class="num c1">' + mh(c1_ext) + '</td>' +
-        '<td class="num c1 b">' + mh(c1_tot) + '</td>' +
-        '<td class="num c2">' + mh(c2_int) + '</td>' +
-        '<td class="num c2">' + mh(c2_ext) + '</td>' +
-        '<td class="num c2 b">' + mh(c2_tot) + '</td>' +
-        '<td class="num c3">' + mh(c3_int) + '</td>' +
-        '<td class="num c3 gec">' + mh(c3_gec) + '</td>' +
-        '<td class="num c3">' + mh(c3_ext) + '</td>' +
-        '<td class="num c3 b">' + mh(c3_tot) + '</td>' +
+        '<td class="num c1">' + mh(c1.internal) + '</td>' +
+        '<td class="num c1">' + mh(c1.specialized) + '</td>' +
+        '<td class="num c1 b">' + mh(c1.total) + '</td>' +
+        '<td class="num c2">' + mh(c2.internal) + '</td>' +
+        '<td class="num c2">' + mh(c2.general) + '</td>' +
+        '<td class="num c2 b">' + mh(c2.total) + '</td>' +
+        '<td class="num c3">' + mh(c3.internal) + '</td>' +
+        '<td class="num c3 gec">' + mh(c3.specialized) + '</td>' +
+        '<td class="num c3">' + mh(c3.general) + '</td>' +
+        '<td class="num c3 b">' + mh(c3.total) + '</td>' +
         '</tr>';
     });
 
     // Grand Total Row
     var totRow = part === 'ci' ? 128 : 113;
-    var c1_int_tot = numOf(sheet + '!J' + totRow);
-    var c1_ext_tot = numOf(sheet + '!V' + totRow);
-    var c1_grand = numOf(sheet + '!AA' + totRow);
-
-    var c2_int_tot = numOf(sheet + '!N' + totRow);
-    var c2_ext_tot = numOf(sheet + '!Z' + totRow);
-    var c2_grand = c2_int_tot + c2_ext_tot;
-
-    var c3_int_tot = numOf(sheet + '!N' + totRow);
-    var c3_gec_tot = numOf(sheet + '!P' + totRow);
-    var c3_ext_tot = numOf(sheet + '!Z' + totRow);
-    var c3_grand = numOf(sheet + '!AC' + totRow);
+    var c1Total = allocationAt(part, 'p1', totRow);
+    var c2Total = allocationAt(part, 'p2', totRow);
+    var c3Total = allocationAt(part, 'p3', totRow);
 
     h += '<tr class="grand-total">' +
       '<td colspan="6" class="b ctr">TOTAL (Total M/H)</td>' +
-      '<td class="num b">' + mh(c1_int_tot) + '</td>' +
-      '<td class="num b">' + mh(c1_ext_tot) + '</td>' +
-      '<td class="num b" style="background:#FFF066;">' + mh(c1_grand) + '</td>' +
-      '<td class="num b">' + mh(c2_int_tot) + '</td>' +
-      '<td class="num b">' + mh(c2_ext_tot) + '</td>' +
-      '<td class="num b" style="background:#FFF066;">' + mh(c2_grand) + '</td>' +
-      '<td class="num b">' + mh(c3_int_tot) + '</td>' +
-      '<td class="num b">' + mh(c3_gec_tot) + '</td>' +
-      '<td class="num b">' + mh(c3_ext_tot) + '</td>' +
-      '<td class="num b" style="background:#FFF066;">' + mh(c3_grand) + '</td>' +
+      '<td class="num b">' + mh(c1Total.internal) + '</td>' +
+      '<td class="num b">' + mh(c1Total.specialized) + '</td>' +
+      '<td class="num b" style="background:#FFF066;">' + mh(c1Total.total) + '</td>' +
+      '<td class="num b">' + mh(c2Total.internal) + '</td>' +
+      '<td class="num b">' + mh(c2Total.general) + '</td>' +
+      '<td class="num b" style="background:#FFF066;">' + mh(c2Total.total) + '</td>' +
+      '<td class="num b">' + mh(c3Total.internal) + '</td>' +
+      '<td class="num b">' + mh(c3Total.specialized) + '</td>' +
+      '<td class="num b">' + mh(c3Total.general) + '</td>' +
+      '<td class="num b" style="background:#FFF066;">' + mh(c3Total.total) + '</td>' +
       '</tr>';
 
     h += '</tbody></table></div>';
@@ -1365,8 +1550,10 @@ var XL = (function () {
     var caseKey = op2Filter.caseKey;
 
     disciplines.forEach(function (part) {
-      var sheetName = 'OP2-' + (caseKey === 'p1' ? '1' : '3') + '_' + (part === 'ci' ? 'CI' : 'TEL');
-      var op2Rows = META['op2_' + part][caseKey];
+      var sheetKey = caseKey === 'p1' ? 'p1' : (caseKey === 'p2' ? 'p3' : 'p2');
+      var sheetNo = caseKey === 'p1' ? '1' : (caseKey === 'p2' ? '3' : '2');
+      var sheetName = 'OP2-' + sheetNo + '_' + (part === 'ci' ? 'CI' : 'TEL');
+      var op2Rows = META['op2_' + part][sheetKey];
 
       h += '<div style="margin-top:16px;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;">' +
         '<h3 style="margin:0;font-size:15px;color:var(--primary);">' + (part === 'ci' ? 'Control &amp; Instrumentation (C&amp;I)' : 'Telecommunication &amp; Security') + ' &mdash; ' + esc(sheetName) + '</h3>' +
@@ -1375,17 +1562,25 @@ var XL = (function () {
 
       h += '<div class="scrollx"><table class="sheet">';
       h += '<thead><tr>';
-      if (caseKey === 'p1' || caseKey === 'p2') {
-        var singleOutLabel = caseKey === 'p1' ? 'Outsourcing (Specialized)' : 'Outsourcing (General)';
+      if (caseKey === 'p1') {
         h += '<th class="head-basic">No.</th><th class="head-basic">Activity Description</th><th class="head-basic">Size / Unit</th>' +
-          '<th colspan="3" class="int">Internal (HEC)</th><th colspan="3" class="ext">Outsourcing - Specialized</th><th class="tot">Total M/H</th><th>Remarks</th></tr>' +
+          '<th colspan="3" class="int">Internal (HEC)</th><th colspan="3" class="gec">Outsourcing (Specialized)</th><th class="tot">Total M/H</th><th>Remarks</th></tr>' +
           '<tr><th></th><th></th><th></th>' +
           '<th class="int">Unit M/H</th><th class="int">Quantity</th><th class="int">M/H</th>' +
+          '<th class="gec">Unit M/H</th><th class="gec">Quantity</th><th class="gec">M/H</th><th></th><th></th></tr>';
+      } else if (caseKey === 'p2') {
+        h += '<th class="head-basic">No.</th><th class="head-basic">Activity Description</th><th class="head-basic">Size / Unit</th>' +
+          '<th colspan="3" class="int">Internal (HEC)</th>' +
+          '<th colspan="3" class="ext">Outsourcing (General) &mdash; Transferred Allocation</th>' +
+          '<th colspan="3" class="ext">Outsourcing (General) &mdash; Existing Allocation</th>' +
+          '<th class="tot">Total M/H</th><th>Remarks</th></tr>' +
+          '<tr><th></th><th></th><th></th>' +
+          '<th class="int">Unit M/H</th><th class="int">Quantity</th><th class="int">M/H</th>' +
+          '<th class="ext">Unit M/H</th><th class="ext">Quantity</th><th class="ext">M/H</th>' +
           '<th class="ext">Unit M/H</th><th class="ext">Quantity</th><th class="ext">M/H</th><th></th><th></th></tr>';
       } else {
-        var extLabel = 'Outsourcing (General)';
         h += '<th class="head-basic">No.</th><th class="head-basic">Activity Description</th><th class="head-basic">Size / Unit</th>' +
-          '<th colspan="3" class="int">Internal (HEC)</th><th colspan="3" class="gec">Outsourcing (Specialized)</th><th colspan="3" class="ext">' + extLabel + '</th><th class="tot">Total M/H</th><th>Remarks</th></tr>' +
+          '<th colspan="3" class="int">Internal (HEC)</th><th colspan="3" class="gec">Outsourcing (Specialized)</th><th colspan="3" class="ext">Outsourcing (General)</th><th class="tot">Total M/H</th><th>Remarks</th></tr>' +
           '<tr><th></th><th></th><th></th>' +
           '<th class="int">Unit M/H</th><th class="int">Quantity</th><th class="int">M/H</th>' +
           '<th class="gec">Unit M/H</th><th class="gec">Quantity</th><th class="gec">M/H</th>' +
@@ -1403,21 +1598,22 @@ var XL = (function () {
         var isGrand = String(noVal).indexOf('GRAND TOTAL') >= 0 || String(actVal).indexOf('GRAND TOTAL') >= 0;
 
         if (isSection) {
-          h += '<tr class="section"><td colspan="' + (caseKey === 'p3' ? 14 : 11) + '">' + esc(noVal + ' ' + actVal) + '</td></tr>';
+          h += '<tr class="section"><td colspan="' + (caseKey === 'p1' ? 11 : 14) + '">' + esc(noVal + ' ' + actVal) + '</td></tr>';
           return;
         }
 
         var trCls = isGrand ? 'grand-total' : (isSubtot ? 'subtotal' : '');
 
-        if (caseKey === 'p1' || caseKey === 'p2') {
-          var u_int = val(sheetName + '!E' + rNum);
-          var q_int = val(sheetName + '!F' + rNum);
-          var mh_int = numOf(sheetName + '!G' + rNum);
-          var u_ext = val(sheetName + '!' + (caseKey === 'p1' ? 'H' : 'K') + rNum);
-          var q_ext = val(sheetName + '!' + (caseKey === 'p1' ? 'I' : 'L') + rNum);
-          var mh_ext = numOf(sheetName + '!' + (caseKey === 'p1' ? 'J' : 'M') + rNum);
-          var tot = caseKey === 'p1' ? numOf(sheetName + '!K' + rNum) : mh_int + mh_ext;
-          var rem = val(sheetName + '!' + (caseKey === 'p1' ? 'L' : 'O') + rNum) || '';
+        var u_int = val(sheetName + '!E' + rNum);
+        var q_int = val(sheetName + '!F' + rNum);
+        var mh_int = numOf(sheetName + '!G' + rNum);
+
+        if (caseKey === 'p1') {
+          var u_spec = val(sheetName + '!H' + rNum);
+          var q_spec = val(sheetName + '!I' + rNum);
+          var mh_spec = numOf(sheetName + '!J' + rNum);
+          var tot = numOf(sheetName + '!K' + rNum);
+          var rem = val(sheetName + '!L' + rNum) || '';
 
           h += '<tr class="' + trCls + '">' +
             '<td class="ctr">' + esc(noVal) + '</td>' +
@@ -1426,24 +1622,30 @@ var XL = (function () {
             '<td class="num">' + (typeof u_int === 'number' ? fmt(u_int, 2) : esc(u_int || '')) + '</td>' +
             '<td class="num">' + (typeof q_int === 'number' ? fmt(q_int, 1) : esc(q_int || '')) + '</td>' +
             '<td class="num int b">' + mh(mh_int) + '</td>' +
-            '<td class="num">' + (typeof u_ext === 'number' ? fmt(u_ext, 2) : esc(u_ext || '')) + '</td>' +
-            '<td class="num">' + (typeof q_ext === 'number' ? fmt(q_ext, 1) : esc(q_ext || '')) + '</td>' +
-            '<td class="num ext b">' + mh(mh_ext) + '</td>' +
+            '<td class="num">' + (typeof u_spec === 'number' ? fmt(u_spec, 2) : esc(u_spec || '')) + '</td>' +
+            '<td class="num">' + (typeof q_spec === 'number' ? fmt(q_spec, 1) : esc(q_spec || '')) + '</td>' +
+            '<td class="num gec b">' + mh(mh_spec) + '</td>' +
             '<td class="num tot b">' + mh(tot) + '</td>' +
             '<td class="hint">' + esc(rem) + '</td>' +
             '</tr>';
         } else {
-          var u_int = val(sheetName + '!E' + rNum);
-          var q_int = val(sheetName + '!F' + rNum);
-          var mh_int = numOf(sheetName + '!G' + rNum);
-          var u_gec = val(sheetName + '!H' + rNum);
-          var q_gec = val(sheetName + '!I' + rNum);
-          var mh_gec = numOf(sheetName + '!J' + rNum);
-          var u_ext = val(sheetName + '!K' + rNum);
-          var q_ext = val(sheetName + '!L' + rNum);
-          var mh_ext = numOf(sheetName + '!M' + rNum);
+          var u_transferred = val(sheetName + '!H' + rNum);
+          var q_transferred = val(sheetName + '!I' + rNum);
+          var mh_transferred = numOf(sheetName + '!J' + rNum);
+          var u_secondary = val(sheetName + '!K' + rNum);
+          var q_secondary = val(sheetName + '!L' + rNum);
+          var mh_secondary = numOf(sheetName + '!M' + rNum);
           var tot = numOf(sheetName + '!N' + rNum);
           var rem = val(sheetName + '!O' + rNum) || '';
+
+          var transferredCells =
+            '<td class="num">' + (typeof u_transferred === 'number' ? fmt(u_transferred, 2) : esc(u_transferred || '')) + '</td>' +
+            '<td class="num">' + (typeof q_transferred === 'number' ? fmt(q_transferred, 1) : esc(q_transferred || '')) + '</td>' +
+            '<td class="num ext b">' + mh(mh_transferred) + '</td>';
+          var secondaryCells =
+            '<td class="num">' + (typeof u_secondary === 'number' ? fmt(u_secondary, 2) : esc(u_secondary || '')) + '</td>' +
+            '<td class="num">' + (typeof q_secondary === 'number' ? fmt(q_secondary, 1) : esc(q_secondary || '')) + '</td>' +
+            '<td class="num ' + (caseKey === 'p3' ? 'gec' : 'ext') + ' b">' + mh(mh_secondary) + '</td>';
 
           h += '<tr class="' + trCls + '">' +
             '<td class="ctr">' + esc(noVal) + '</td>' +
@@ -1452,12 +1654,7 @@ var XL = (function () {
             '<td class="num">' + (typeof u_int === 'number' ? fmt(u_int, 2) : esc(u_int || '')) + '</td>' +
             '<td class="num">' + (typeof q_int === 'number' ? fmt(q_int, 1) : esc(q_int || '')) + '</td>' +
             '<td class="num int b">' + mh(mh_int) + '</td>' +
-            '<td class="num">' + (typeof u_gec === 'number' ? fmt(u_gec, 2) : esc(u_gec || '')) + '</td>' +
-            '<td class="num">' + (typeof q_gec === 'number' ? fmt(q_gec, 1) : esc(q_gec || '')) + '</td>' +
-            '<td class="num gec b">' + mh(mh_gec) + '</td>' +
-            '<td class="num">' + (typeof u_ext === 'number' ? fmt(u_ext, 2) : esc(u_ext || '')) + '</td>' +
-            '<td class="num">' + (typeof q_ext === 'number' ? fmt(q_ext, 1) : esc(q_ext || '')) + '</td>' +
-            '<td class="num ext b">' + mh(mh_ext) + '</td>' +
+            (caseKey === 'p3' ? secondaryCells + transferredCells : transferredCells + secondaryCells) +
             '<td class="num tot b">' + mh(tot) + '</td>' +
             '<td class="hint">' + esc(rem) + '</td>' +
             '</tr>';
@@ -1515,7 +1712,7 @@ var XL = (function () {
       h += '<div class="sec-card" id="sec-a-' + part + '">' +
         '<div class="sec-card-header"><span>Section A: Material Requisition (MR) &amp; Equipment Quantities</span><span class="hint" style="color:#CFDBE8;">MR Sets, Item Quantities &amp; Execution Split</span></div>' +
         '<div class="sec-card-body"><div class="scrollx"><table class="sheet"><thead><tr>' +
-        '<th>S/N</th><th>Main Category</th><th>Sub Category</th><th>Item Quantity</th><th>Unit</th><th>MR Sets</th><th>Unit</th><th>Outsourcing (Specialized) (%)</th><th>Outsourcing (%)</th><th>Total M/H</th></tr></thead><tbody>';
+        '<th>S/N</th><th>Main Category</th><th>Sub Category</th><th>Item Quantity</th><th>Unit</th><th>MR Sets</th><th>Unit</th><th>Outsource General — HEC Work (%)</th><th>Additional Outsourcing (%)</th><th>Total M/H</th></tr></thead><tbody>';
 
       data.sec_a.forEach(function (item) {
         var qRef = item.qty_item_ref || item.qty_ref;
@@ -1543,7 +1740,7 @@ var XL = (function () {
       h += '<div class="sec-card" id="sec-b-' + part + '">' +
         '<div class="sec-card-header"><span>Section B: Design Deliverables &amp; Quantities</span><span class="hint" style="color:#CFDBE8;">Deliverable Quantities &amp; Work Execution Split</span></div>' +
         '<div class="sec-card-body"><div class="scrollx"><table class="sheet"><thead><tr>' +
-        '<th>S/N</th><th>Deliverable Group</th><th>Item Detail</th><th>Quantity</th><th>Unit</th><th>Outsourcing (Specialized) (%)</th><th>Outsourcing (%)</th><th>External Outsourcing (Specialized) (%)</th></tr></thead><tbody>';
+        '<th>S/N</th><th>Deliverable Group</th><th>Item Detail</th><th>Quantity</th><th>Unit</th><th>Outsource General — HEC Work (%)</th><th>Additional Outsourcing (%)</th><th>Outsource General — External Work (%)</th></tr></thead><tbody>';
 
       data.sec_b.forEach(function (item) {
         var qRef = item.qty_ref;
@@ -1889,6 +2086,7 @@ var XL = (function () {
       if (state.scopeToggles) scopeToggles = state.scopeToggles;
       if (state.customOverrides) customOverrides = state.customOverrides;
       Object.keys(edits).forEach(function (ref) { G.cells[ref] = { v: edits[ref] }; });
+      migrateLegacyCaseSelections();
       refreshAll();
       if (showMsg) toast('Saved project state loaded.');
       return true;
@@ -1966,6 +2164,7 @@ var XL = (function () {
           if (state.scopeToggles) scopeToggles = state.scopeToggles;
           if (state.customOverrides) customOverrides = state.customOverrides;
           Object.keys(edits).forEach(function (ref) { G.cells[ref] = { v: edits[ref] }; });
+          migrateLegacyCaseSelections();
           refreshAll(); saveState(true); toast('Imported project inputs successfully.');
         } catch (err) { toast('Import failed: ' + err.message); }
       };
@@ -2012,6 +2211,8 @@ var XL = (function () {
     stdFilter: stdFilter,
     scopeToggles: scopeToggles,
     customOverrides: customOverrides,
+    allocationAt: allocationAt,
+    subcontractCosts: subcontractCosts,
     renderSummary: renderSummary,
     renderOp1: renderOp1,
     renderOp2Reports: renderOp2Reports,
